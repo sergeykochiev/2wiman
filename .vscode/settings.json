@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "stdio.h": "c",
+        "dwmapi.h": "c",
+        "windows.h": "c",
+        "*.rh": "cpp"
+    }
+}

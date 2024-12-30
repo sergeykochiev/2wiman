@@ -1,0 +1,1 @@
+gcc -I C:\Users\dupa\gcc\x86_64-w64-mingw32\include -L C:\Users\dupa\gcc\x86_64-w64-mingw32\lib -l "user32" -o main main.c
