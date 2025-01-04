@@ -12,6 +12,15 @@
 #define is_wh_equal_rect(a, b) (((a.bottom - a.top) == (b.bottom - b.top)) && ((a.right - a.left) == (b.right - b.left)))
 #define is_pressed(key) HIWORD(GetKeyState(key)) != 0
 #define is_toolwindow(dxExStyle) is_param_in_xor(dxExStyle, WS_EX_TOOLWINDOW)
+#define get_curr_hwnd(wmds) (wmds).wnd_list[(wmds).curr_wnd].hwnd
+#define g_curr_desk wms.desk_list[wms.curr_desk]
+#define print_rect(rect) printf("left %ld, top %ld, right %ld, bottom %ld", rect.left , rect.top, rect.right, rect.bottom);
+void print_ex_styles(long ex_styles) {
+    if(is_param_in_xor(ex_styles, WS_EX_ACCEPTFILES)) printf("WS_EX_ACCEPTFILES, "); if(is_param_in_xor(ex_styles, WS_EX_APPWINDOW)) printf("WS_EX_APPWINDOW, "); if(is_param_in_xor(ex_styles, WS_EX_CLIENTEDGE)) printf("WS_EX_CLIENTEDGE, "); if(is_param_in_xor(ex_styles, WS_EX_COMPOSITED)) printf("WS_EX_COMPOSITED, "); if(is_param_in_xor(ex_styles, WS_EX_CONTEXTHELP)) printf("WS_EX_CONTEXTHELP, "); if(is_param_in_xor(ex_styles, WS_EX_CONTEXTHELP)) printf("WS_EX_CONTEXTHELP, "); if(is_param_in_xor(ex_styles, WS_EX_CONTROLPARENT)) printf("WS_EX_CONTROLPARENT, "); if(is_param_in_xor(ex_styles, WS_EX_DLGMODALFRAME)) printf("WS_EX_DLGMODALFRAME, "); if(is_param_in_xor(ex_styles, WS_EX_LAYERED)) printf("WS_EX_LAYERED, "); if(is_param_in_xor(ex_styles, WS_EX_LAYOUTRTL)) printf("WS_EX_LAYOUTRTL, "); if(is_param_in_xor(ex_styles, WS_EX_LEFT)) printf("WS_EX_LEFT, "); if(is_param_in_xor(ex_styles, WS_EX_LEFTSCROLLBAR)) printf("WS_EX_LEFTSCROLLBAR, "); if(is_param_in_xor(ex_styles, WS_EX_LTRREADING)) printf("WS_EX_LTRREADING, "); if(is_param_in_xor(ex_styles, WS_EX_MDICHILD)) printf("WS_EX_MDICHILD, "); if(is_param_in_xor(ex_styles, WS_EX_NOACTIVATE)) printf("WS_EX_NOACTIVATE, "); if(is_param_in_xor(ex_styles, WS_EX_NOINHERITLAYOUT)) printf("WS_EX_NOINHERITLAYOUT, "); if(is_param_in_xor(ex_styles, WS_EX_NOPARENTNOTIFY)) printf("WS_EX_NOPARENTNOTIFY, "); if(is_param_in_xor(ex_styles, WS_EX_NOREDIRECTIONBITMAP)) printf("WS_EX_NOREDIRECTIONBITMAP, "); if(is_param_in_xor(ex_styles, WS_EX_OVERLAPPEDWINDOW)) printf("WS_EX_OVERLAPPEDWINDOW, "); if(is_param_in_xor(ex_styles, WS_EX_PALETTEWINDOW)) printf("WS_EX_PALETTEWINDOW, "); if(is_param_in_xor(ex_styles, WS_EX_RIGHT)) printf("WS_EX_RIGHT, "); if(is_param_in_xor(ex_styles, WS_EX_RIGHTSCROLLBAR)) printf("WS_EX_RIGHTSCROLLBAR, "); if(is_param_in_xor(ex_styles, WS_EX_RTLREADING)) printf("WS_EX_RTLREADING, "); if(is_param_in_xor(ex_styles, WS_EX_STATICEDGE)) printf("WS_EX_STATICEDGE, "); if(is_param_in_xor(ex_styles, WS_EX_TOOLWINDOW)) printf("WS_EX_TOOLWINDOW, "); if(is_param_in_xor(ex_styles, WS_EX_TOPMOST)) printf("WS_EX_TOPMOST, "); if(is_param_in_xor(ex_styles, WS_EX_TRANSPARENT)) printf("WS_EX_TRANSPARENT, "); if(is_param_in_xor(ex_styles, WS_EX_WINDOWEDGE)) printf("WS_EX_WINDOWEDGE, ");
+}
+void print_styles(long styles) {
+    if(is_param_in_xor(styles, WS_BORDER)) printf("WS_BORDER, "); if(is_param_in_xor(styles, WS_CAPTION)) printf("WS_CAPTION, "); if(is_param_in_xor(styles, WS_CHILD)) printf("WS_CHILD, "); if(is_param_in_xor(styles, WS_CHILDWINDOW)) printf("WS_CHILDWINDOW, "); if(is_param_in_xor(styles, WS_CLIPCHILDREN)) printf("WS_CLIPCHILDREN, "); if(is_param_in_xor(styles, WS_CLIPSIBLINGS)) printf("WS_CLIPSIBLINGS, "); if(is_param_in_xor(styles, WS_DISABLED)) printf("WS_DISABLED, "); if(is_param_in_xor(styles, WS_DLGFRAME)) printf("WS_DLGFRAME, "); if(is_param_in_xor(styles, WS_GROUP)) printf("WS_GROUP, "); if(is_param_in_xor(styles, WS_HSCROLL)) printf("WS_HSCROLL, "); if(is_param_in_xor(styles, WS_ICONIC)) printf("WS_ICONIC, "); if(is_param_in_xor(styles, WS_MAXIMIZE)) printf("WS_MAXIMIZE, "); if(is_param_in_xor(styles, WS_MAXIMIZEBOX)) printf("WS_MAXIMIZEBOX, "); if(is_param_in_xor(styles, WS_MINIMIZE)) printf("WS_MINIMIZE, "); if(is_param_in_xor(styles, WS_MINIMIZEBOX)) printf("WS_MINIMIZEBOX, "); if(is_param_in_xor(styles, WS_OVERLAPPED)) printf("WS_OVERLAPPED, "); if(is_param_in_xor(styles, WS_OVERLAPPEDWINDOW)) printf("WS_OVERLAPPEDWINDOW, "); if(is_param_in_xor(styles, WS_POPUPWINDOW)) printf("WS_POPUPWINDOW, "); if(is_param_in_xor(styles, WS_SIZEBOX)) printf("WS_SIZEBOX, "); if(is_param_in_xor(styles, WS_SYSMENU)) printf("WS_SYSMENU, "); if(is_param_in_xor(styles, WS_TABSTOP)) printf("WS_TABSTOP, "); if(is_param_in_xor(styles, WS_THICKFRAME)) printf("WS_THICKFRAME, "); if(is_param_in_xor(styles, WS_TILED)) printf("WS_TILED, "); if(is_param_in_xor(styles, WS_TILEDWINDOW)) printf("WS_TILEDWINDOW, "); if(is_param_in_xor(styles, WS_VISIBLE)) printf("WS_VISIBLE, "); if(is_param_in_xor(styles, WS_VSCROLL)) printf("WS_VSCROLL, ");
+}
 
 typedef struct {
     int stack_mode_infinite_scroll;
@@ -42,13 +51,13 @@ typedef struct {
     size_t tiling_count;
     int curr_wnd;
     WIMAN_MODE mode;
-    int is_initialized;
+    int changed;
 } WIMAN_DESKTOP_STATE;
 
 typedef struct {
     WIMAN_DESKTOP_STATE desk_list[9];
     MONITOR_SIZE monitor_size;
-    size_t curr_desk;
+    int curr_desk;
 } WIMAN_STATE;
 
 WIMAN_STATE wms = {};
@@ -76,77 +85,13 @@ void wnd_msg_proc(
   DWORD dwmsEventTime
 );
 
-void print_ex_styles(long ex_styles) {
-    if(is_param_in_xor(ex_styles, WS_EX_ACCEPTFILES)) printf("WS_EX_ACCEPTFILES, ");
-    if(is_param_in_xor(ex_styles, WS_EX_APPWINDOW)) printf("WS_EX_APPWINDOW, ");
-    if(is_param_in_xor(ex_styles, WS_EX_CLIENTEDGE)) printf("WS_EX_CLIENTEDGE, ");
-    if(is_param_in_xor(ex_styles, WS_EX_COMPOSITED)) printf("WS_EX_COMPOSITED, ");
-    if(is_param_in_xor(ex_styles, WS_EX_CONTEXTHELP)) printf("WS_EX_CONTEXTHELP, ");
-    if(is_param_in_xor(ex_styles, WS_EX_CONTEXTHELP)) printf("WS_EX_CONTEXTHELP, ");
-    if(is_param_in_xor(ex_styles, WS_EX_CONTROLPARENT)) printf("WS_EX_CONTROLPARENT, ");
-    if(is_param_in_xor(ex_styles, WS_EX_DLGMODALFRAME)) printf("WS_EX_DLGMODALFRAME, ");
-    if(is_param_in_xor(ex_styles, WS_EX_LAYERED)) printf("WS_EX_LAYERED, ");
-    if(is_param_in_xor(ex_styles, WS_EX_LAYOUTRTL)) printf("WS_EX_LAYOUTRTL, ");
-    if(is_param_in_xor(ex_styles, WS_EX_LEFT)) printf("WS_EX_LEFT, ");
-    if(is_param_in_xor(ex_styles, WS_EX_LEFTSCROLLBAR)) printf("WS_EX_LEFTSCROLLBAR, ");
-    if(is_param_in_xor(ex_styles, WS_EX_LTRREADING)) printf("WS_EX_LTRREADING, ");
-    if(is_param_in_xor(ex_styles, WS_EX_MDICHILD)) printf("WS_EX_MDICHILD, ");
-    if(is_param_in_xor(ex_styles, WS_EX_NOACTIVATE)) printf("WS_EX_NOACTIVATE, ");
-    if(is_param_in_xor(ex_styles, WS_EX_NOINHERITLAYOUT)) printf("WS_EX_NOINHERITLAYOUT, ");
-    if(is_param_in_xor(ex_styles, WS_EX_NOPARENTNOTIFY)) printf("WS_EX_NOPARENTNOTIFY, ");
-    if(is_param_in_xor(ex_styles, WS_EX_NOREDIRECTIONBITMAP)) printf("WS_EX_NOREDIRECTIONBITMAP, ");
-    if(is_param_in_xor(ex_styles, WS_EX_OVERLAPPEDWINDOW)) printf("WS_EX_OVERLAPPEDWINDOW, ");
-    if(is_param_in_xor(ex_styles, WS_EX_PALETTEWINDOW)) printf("WS_EX_PALETTEWINDOW, ");
-    if(is_param_in_xor(ex_styles, WS_EX_RIGHT)) printf("WS_EX_RIGHT, ");
-    if(is_param_in_xor(ex_styles, WS_EX_RIGHTSCROLLBAR)) printf("WS_EX_RIGHTSCROLLBAR, ");
-    if(is_param_in_xor(ex_styles, WS_EX_RTLREADING)) printf("WS_EX_RTLREADING, ");
-    if(is_param_in_xor(ex_styles, WS_EX_STATICEDGE)) printf("WS_EX_STATICEDGE, ");
-    if(is_param_in_xor(ex_styles, WS_EX_TOOLWINDOW)) printf("WS_EX_TOOLWINDOW, ");
-    if(is_param_in_xor(ex_styles, WS_EX_TOPMOST)) printf("WS_EX_TOPMOST, ");
-    if(is_param_in_xor(ex_styles, WS_EX_TRANSPARENT)) printf("WS_EX_TRANSPARENT, ");
-    if(is_param_in_xor(ex_styles, WS_EX_WINDOWEDGE)) printf("WS_EX_WINDOWEDGE, ");
-}
-
-void print_styles(long styles) {
-    if(is_param_in_xor(styles, WS_BORDER)) printf("WS_BORDER, ");
-    if(is_param_in_xor(styles, WS_CAPTION)) printf("WS_CAPTION, ");
-    if(is_param_in_xor(styles, WS_CHILD)) printf("WS_CHILD, ");
-    if(is_param_in_xor(styles, WS_CHILDWINDOW)) printf("WS_CHILDWINDOW, ");
-    if(is_param_in_xor(styles, WS_CLIPCHILDREN)) printf("WS_CLIPCHILDREN, ");
-    if(is_param_in_xor(styles, WS_CLIPSIBLINGS)) printf("WS_CLIPSIBLINGS, ");
-    if(is_param_in_xor(styles, WS_DISABLED)) printf("WS_DISABLED, ");
-    if(is_param_in_xor(styles, WS_DLGFRAME)) printf("WS_DLGFRAME, ");
-    if(is_param_in_xor(styles, WS_GROUP)) printf("WS_GROUP, ");
-    if(is_param_in_xor(styles, WS_HSCROLL)) printf("WS_HSCROLL, ");
-    if(is_param_in_xor(styles, WS_ICONIC)) printf("WS_ICONIC, ");
-    if(is_param_in_xor(styles, WS_MAXIMIZE)) printf("WS_MAXIMIZE, ");
-    if(is_param_in_xor(styles, WS_MAXIMIZEBOX)) printf("WS_MAXIMIZEBOX, ");
-    if(is_param_in_xor(styles, WS_MINIMIZE)) printf("WS_MINIMIZE, ");
-    if(is_param_in_xor(styles, WS_MINIMIZEBOX)) printf("WS_MINIMIZEBOX, ");
-    if(is_param_in_xor(styles, WS_OVERLAPPED)) printf("WS_OVERLAPPED, ");
-    if(is_param_in_xor(styles, WS_OVERLAPPEDWINDOW)) printf("WS_OVERLAPPEDWINDOW, ");
-    if(is_param_in_xor(styles, WS_POPUPWINDOW)) printf("WS_POPUPWINDOW, ");
-    if(is_param_in_xor(styles, WS_SIZEBOX)) printf("WS_SIZEBOX, ");
-    if(is_param_in_xor(styles, WS_SYSMENU)) printf("WS_SYSMENU, ");
-    if(is_param_in_xor(styles, WS_TABSTOP)) printf("WS_TABSTOP, ");
-    if(is_param_in_xor(styles, WS_THICKFRAME)) printf("WS_THICKFRAME, ");
-    if(is_param_in_xor(styles, WS_TILED)) printf("WS_TILED, ");
-    if(is_param_in_xor(styles, WS_TILEDWINDOW)) printf("WS_TILEDWINDOW, ");
-    if(is_param_in_xor(styles, WS_VISIBLE)) printf("WS_VISIBLE, ");
-    if(is_param_in_xor(styles, WS_VSCROLL)) printf("WS_VSCROLL, ");
-}
-
-void print_rect(RECT *rect) {
-    printf("left %ld, top %ld, right %ld, bottom %ld", rect->left , rect->top, rect->right, rect->bottom);
-}
-
 void print_windowinfo(WINDOWINFO *info) {
     printf("      cdSize: %lu\n", info->cbSize);
     printf("      rcWindow: ");
-    print_rect(&info->rcWindow);
+    print_rect(info->rcWindow);
     printf("\n");
     printf("      rcClient: ");
-    print_rect(&info->rcClient);
+    print_rect(info->rcClient);
     printf("\n");
     printf("      dwStyle: ");
     print_styles(info->dwStyle);
@@ -161,8 +106,40 @@ void print_windowinfo(WINDOWINFO *info) {
     printf("      wCreatorVersion: %hu\n", info->wCreatorVersion);
 }
 
-#define get_curr_hwnd(wmds) (wmds).wnd_list[(wmds).curr_wnd].hwnd
-#define g_curr_desk wms.desk_list[wms.curr_desk]
+int append_new_wnd(WIMAN_WINDOW **wndl, size_t *len, HWND new_hwnd) {
+    (*len)++;
+    WIMAN_WINDOW *new_wndl = realloc(*wndl, sizeof(WIMAN_WINDOW) * *len);
+    if(new_wndl == NULL) {
+        return 1;
+    }
+    *wndl = new_wndl;
+    (*wndl)[(*len) - 1] = (WIMAN_WINDOW){
+        .hwnd = new_hwnd,
+        .is_freeroam = FALSE
+    };
+    return 0;
+}
+
+int insert_new_wnd(WIMAN_WINDOW **wndl, size_t *len, WIMAN_WINDOW w, int after) {
+    (*len)++;
+    WIMAN_WINDOW *new_wndl = realloc(*wndl, sizeof(WIMAN_WINDOW) * *len);
+    if(new_wndl == NULL) return 1;
+    *wndl = new_wndl;
+    if(after < *len - 1) memmove_s(*wndl + after + 2, (*len - after - 2) * sizeof(WIMAN_WINDOW), *wndl + after + 1, (*len - after - 2) * sizeof(WIMAN_WINDOW));
+    (*wndl)[after + 1] = w;
+    return 0;
+}
+
+int remove_wnd_by_idx(WIMAN_WINDOW **wndl, size_t *len, int idx) {
+    if(idx < *len - 1) memmove_s(*wndl + idx, (*len - idx) * sizeof(WIMAN_WINDOW), *wndl + idx + 1, (*len - idx - 1) * sizeof(WIMAN_WINDOW));
+    (*len)--;
+    WIMAN_WINDOW *new_wndl = realloc(*wndl, *len * sizeof(WIMAN_WINDOW));
+    if(new_wndl == NULL) {
+        return 1;
+    }
+    *wndl = new_wndl;
+    return 0;
+}
 
 int position_window(HWND hwnd, WINDOWPLACEMENT *wp, RECT *wr) {
     if(!SetWindowPlacement(hwnd, wp)) return 1;
@@ -193,35 +170,8 @@ void switch_hwnds_pos(WIMAN_WINDOW **wndl, int first, int second, WINDOWPLACEMEN
     position_window((*wndl)[second].hwnd, wp, wr);
 }
 
-int append_new_wnd(WIMAN_WINDOW **wndl, size_t *len, HWND new_hwnd) {
-    (*len)++;
-    WIMAN_WINDOW *new_wndl = realloc(*wndl, sizeof(WIMAN_WINDOW) * *len);
-    if(new_wndl == NULL) {
-        return 1;
-    }
-    *wndl = new_wndl;
-    (*wndl)[(*len) - 1] = (WIMAN_WINDOW){
-        .hwnd = new_hwnd,
-        .is_freeroam = FALSE
-    };
-    return 0;
-}
-
-int insert_new_wnd(WIMAN_WINDOW **wndl, size_t *len, HWND new_hwnd, int after) {
-    (*len)++;
-    WIMAN_WINDOW *new_wndl = realloc(*wndl, sizeof(WIMAN_WINDOW) * *len);
-    if(new_wndl == NULL) return 1;
-    *wndl = new_wndl;
-    if(after < *len - 1) memmove_s(*wndl + after + 2, (*len - after - 2) * sizeof(WIMAN_WINDOW), *wndl + after + 1, (*len - after - 2) * sizeof(WIMAN_WINDOW));
-    (*wndl)[after + 1] = (WIMAN_WINDOW){
-        .hwnd = new_hwnd,
-        .is_freeroam = FALSE
-    };
-    return 0;
-}
 
 int print_windows_list(WIMAN_WINDOW **wndl, size_t len) {
-    printf("* Windows list:\n");
     char *title = malloc(0);
     int length;
     WINDOWINFO wi;
@@ -246,24 +196,21 @@ int print_windows_list(WIMAN_WINDOW **wndl, size_t len) {
 }
 
 // TODO write new to use WIMAN_STATE
-void print_debug_info(WIMAN_DESKTOP_STATE *wmds) {
-    printf("============DEBUG-INFO============\n");
+void print_desktop_state(WIMAN_DESKTOP_STATE *wmds) {
     print_windows_list(&wmds->wnd_list, wmds->wnd_count);
-    printf("* Current window: %d\n", wmds->curr_wnd);
+    printf("* Current window: %d\n", wmds->curr_wnd + 1);
     printf("* Number of tiling windows: %lld\n", wmds->tiling_count);
-    printf("==========END-DEBUG-INFO==========\n");
 }
 
-// TODO doesn't work
-int remove_wnd_by_idx(WIMAN_WINDOW **wndl, size_t *len, int idx) {
-    if(idx < *len - 1) memmove_s(*wndl + idx, (*len - idx) * sizeof(WIMAN_WINDOW), *wndl + idx + 1, (*len - idx - 1) * sizeof(WIMAN_WINDOW));
-    (*len)--;
-    WIMAN_WINDOW *new_wndl = realloc(*wndl, *len * sizeof(WIMAN_WINDOW));
-    if(new_wndl == NULL) {
-        return 1;
+void print_debug_info(WIMAN_STATE *wms) {
+    printf("============DEBUG-INFO============\n");
+    for(int i = 0; i < 9; i++) {
+        printf("DESKTOP %d\n", i + 1);
+        print_desktop_state(&wms->desk_list[i]);
+        printf("END %d\n", i + 1);
     }
-    *wndl = new_wndl;
-    return 0;
+    printf("* Current desktop: %d\n", wms->curr_desk + 1);
+    printf("==========END-DEBUG-INFO==========\n");
 }
 
 int get_wnd_id_by_hwnd(WIMAN_DESKTOP_STATE *wmds, HWND hwnd) {
@@ -307,6 +254,14 @@ BOOL CALLBACK fetch_wnds(HWND hwnd, LPARAM lParam) {
     #define wmds ((WIMAN_DESKTOP_STATE*)lParam)
     return !append_new_wnd(&wmds->wnd_list, &wmds->wnd_count, hwnd);
     #undef wmds
+}
+
+int move_wnd_to_desk(WIMAN_DESKTOP_STATE *desk_from, int wnd, WIMAN_DESKTOP_STATE *desk_to) {
+    ShowWindow(desk_from->wnd_list[wnd].hwnd, SW_HIDE);
+    insert_new_wnd(&desk_to->wnd_list, &desk_to->wnd_count, desk_from->wnd_list[wnd], desk_to->tiling_count - 1);
+    desk_to->tiling_count += !desk_from->wnd_list[wnd].is_freeroam;
+    remove_wnd_by_idx(&desk_from->wnd_list, &desk_from->wnd_count, wnd);
+    desk_from->tiling_count -= !desk_from->wnd_list[wnd].is_freeroam;
 }
 
 // Snippet of code that uses inbuilt tiling system to tile windows. I still haven't figured out how to make it tile more than 2 on screen
@@ -429,8 +384,7 @@ int focus_act_window(WIMAN_DESKTOP_STATE *wmds, int prev_act_idx) {
 
 // Repositions all windows based on the current mode in state.
 int init_curr_mode_reposition(WIMAN_DESKTOP_STATE *wmds, MONITOR_SIZE *ms) {
-    wmds->is_initialized = TRUE;
-    printf("Initializing %s mode...\n", WMM_NAMES[wmds->mode]);
+    printf("Initializing %s mode on desktop with %lld tiling windows...\n", WMM_NAMES[wmds->mode], wmds->tiling_count);
     if(wmds->tiling_count == 0) return 0;
     switch(wmds->mode) {
         case WMM_STACK: {
@@ -453,20 +407,19 @@ int switch_desc_to(WIMAN_STATE *wms, int new_desk_idx) {
     int i;
     for(i = 0; i < wms->desk_list[wms->curr_desk].wnd_count; i++) ShowWindow(wnd.hwnd, SW_HIDE);
     wms->curr_desk = new_desk_idx;
-    // if(!wms->desk_list[wms->curr_desk].is_initialized) return init_curr_mode_reposition(&wms->desk_list[wms->curr_desk], &wms->monitor_size);
+    if(wms->desk_list[wms->curr_desk].changed) init_curr_mode_reposition(&wms->desk_list[wms->curr_desk], &wms->monitor_size);
     for(i = 0; i < wms->desk_list[wms->curr_desk].wnd_count; i++) ShowWindow(wnd.hwnd, SW_SHOW);
     #undef wnd
     return 0;
 }
 
-// TODO is_notification_function
 // TODO FIX sometimes weird things happen when opening a window or switching windows while there are freeroam ones
 // (works, needs further testing) TODO FIX when a freeroam window is present and a new window is opened (appended), freeroam window becomes non freeroam and get placed at the same place as the newly opened window
-// (currently undoable) TODO .IDEA if cannot set the position make it freeroam and add some flag like is_permanenty_freeroam
+// (currently undoable) TODO .IDEA if cannot set the position make it freeroam and add some flag like is_permanenty_freeroam (is_unresizable)
 // (works, needs further testing) TODO refetch windows on new window open
 // (works, needs further testing) TODO refetch windows on window close
 // (works, needs further testing) TODO set active_window on actual active window anytime
-// TODO virtual desktops
+// (works, needs further testing) TODO virtual desktops
 // TODO closing windows shortcut
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd) {
     wms.monitor_size.w = GetSystemMetrics(SM_CXSCREEN);
@@ -573,10 +526,19 @@ LRESULT CALLBACK keyboard_proc(int nCode, WPARAM wParam, LPARAM lParam) {
             init_curr_mode_reposition(&g_curr_desk, &wms.monitor_size);
             break;
         case 'D':
-            print_debug_info(&g_curr_desk);
+            print_debug_info(&wms);
             break;
         case 49 ... 57:
-            switch_desc_to(&wms, key->vkCode - 49);
+            #define target_desk key->vkCode - 49
+            if(target_desk == wms.curr_desk) break;
+            if(is_pressed(VK_SHIFT)) {
+                move_wnd_to_desk(&g_curr_desk, g_curr_desk.curr_wnd, &wms.desk_list[target_desk]);
+                wms.desk_list[target_desk].changed = TRUE;
+                // TODO do only when window that moved was freeroaming
+                init_curr_mode_reposition(&g_curr_desk, &wms.monitor_size);
+                break;
+            }
+            switch_desc_to(&wms, target_desk);
         }
         return 1;
     }
@@ -613,7 +575,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 if(id != -1) break;
                 add_window:
                 printf("New window is opened\n");
-                insert_new_wnd(&g_curr_desk.wnd_list, &g_curr_desk.wnd_count, chwnd, g_curr_desk.tiling_count - 1);
+                insert_new_wnd(&g_curr_desk.wnd_list, &g_curr_desk.wnd_count, (WIMAN_WINDOW){ .hwnd = chwnd }, g_curr_desk.tiling_count - 1);
                 g_curr_desk.tiling_count++;
                 // print_windows_list(&wiman_state.windows_list, " - ");
                 switch(g_curr_desk.mode) {
