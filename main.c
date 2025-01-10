@@ -107,17 +107,14 @@ void print_windowinfo(WINDOWINFO *info) {
     printf("      wCreatorVersion: %hu\n", info->wCreatorVersion);
 }
 
-int append_new_wnd(WIMAN_WINDOW **wndl, size_t *len, HWND new_hwnd) {
+int append_new_wnd(WIMAN_WINDOW **wndl, size_t *len, WIMAN_WINDOW w) {
     (*len)++;
     WIMAN_WINDOW *new_wndl = realloc(*wndl, sizeof(WIMAN_WINDOW) * *len);
     if(new_wndl == NULL) {
         return 1;
     }
     *wndl = new_wndl;
-    (*wndl)[(*len) - 1] = (WIMAN_WINDOW){
-        .hwnd = new_hwnd,
-        .is_freeroam = FALSE
-    };
+    (*wndl)[(*len) - 1] = w;
     return 0;
 }
 
@@ -189,7 +186,7 @@ int print_windows_list(WIMAN_WINDOW **wndl, size_t len) {
         if(new_title == NULL) return 1;
         title = new_title;
         GetWindowTextA(wnd.hwnd, title, length + 1);
-        printf("  - Window %d%s: \"%s\"\n", i + 1, wnd.is_freeroam ? " (freeroam)" : "", title);
+        printf("  - Window %d%s: \"%s\"\n", i + 1, wnd.is_freeroam ? wnd.is_unresizable ? " (freeroam, unresizable)" : " (freeroam)" : "", title);
         GetWindowInfo(wnd.hwnd, &wi);
         print_windowinfo(&wi);
     }
@@ -256,7 +253,9 @@ HWND create_main_window(HINSTANCE *hInstance) {
 BOOL CALLBACK fetch_wnds(HWND hwnd, LPARAM lParam) {
     if(!is_actual_window(hwnd)) return TRUE;
     #define wmds ((WIMAN_DESKTOP_STATE*)lParam)
-    return !append_new_wnd(&wmds->wnd_list, &wmds->wnd_count, hwnd);
+    DWORD dxStyle = GetWindowLongPtrA(hwnd, GWL_STYLE);
+    if(!is_resizable(dxStyle)) return !append_new_wnd(&wmds->wnd_list, &wmds->wnd_count, (WIMAN_WINDOW){ .is_unresizable = TRUE, .is_freeroam = TRUE, .hwnd = hwnd });
+    return !insert_new_wnd(&wmds->wnd_list, &wmds->wnd_count, (WIMAN_WINDOW){ .hwnd = hwnd }, wmds->tiling_count++ - 1);
     #undef wmds
 }
 
@@ -282,6 +281,7 @@ int move_wnd_to_desk(WIMAN_DESKTOP_STATE *desk_from, int wnd, WIMAN_DESKTOP_STAT
 
 int toggle_wnd_freeroam(WIMAN_DESKTOP_STATE *wmds, int idx, MONITOR_SIZE *ms) {
     #define wnd wmds->wnd_list[idx]
+    if(wnd.is_unresizable) return 0;
     int i = wmds->tiling_count - 1;
     if(!wnd.is_freeroam) {
         int offset = (wmds->wnd_count - wmds->tiling_count) * 32;
@@ -415,8 +415,8 @@ int switch_desc_to(WIMAN_STATE *wms, int new_desk_idx) {
     return 0;
 }
 
-// TODO .IDEA if cannot set the position make it freeroam and add some flag like is_permanenty_freeroam (is_unresizable)
-// (FIXED) TODO FIX when moving last window off of virtual desk segfault occurs
+// (works, needs further testing) TODO .IDEA if cannot set the position make it freeroam and add some flag like is_permanenty_freeroam (is_unresizable)
+// (fixed) TODO FIX when moving last window off of virtual desk segfault occurs
 // TODO FIX spotify rerenders ui on every reposition
 // (currently undoable) TODO FIX weird margins around some windows
 // TODO .IDEA handle WM_DPICHANGED
@@ -460,8 +460,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         .curr_wnd = -1,
     };
     EnumWindows(fetch_wnds, (LPARAM)&g_curr_desk);
-    g_curr_desk.tiling_count = g_curr_desk.wnd_count;
-    printf("Fetched %lld windows\n", g_curr_desk.wnd_count);
+    printf("Fetched %lld windows, %lld tiling\n", g_curr_desk.wnd_count, g_curr_desk.tiling_count);
     if(g_curr_desk.wnd_count > 0) g_curr_desk.curr_wnd = 0;
 
     WM_SHELLHOOKMESSAGE = RegisterWindowMessage(TEXT("SHELLHOOK"));
@@ -547,13 +546,13 @@ LRESULT CALLBACK keyboard_proc(int nCode, WPARAM wParam, LPARAM lParam) {
             if(is_pressed(VK_SHIFT)) {
                 move_wnd_to_desk(&g_curr_desk, g_curr_desk.curr_wnd, &wms.desk_list[target_desk]);
                 wms.desk_list[target_desk].changed = TRUE;
-                // TODO do only when window that moved was freeroaming
+                // TODO do only when window that moved was not freeroaming
                 init_curr_mode_reposition(&g_curr_desk, &wms.monitor_size);
                 break;
             }
             switch_desc_to(&wms, target_desk);
         }
-        return 1;
+        return 2;
     }
     return CallNextHookEx(NULL, nCode, wParam, lParam);
 }
@@ -564,14 +563,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         int id;
         #define chwnd (HWND)lParam
         id = get_wnd_id_by_hwnd(&g_curr_desk, chwnd);
+        long curr_wnd_style = GetWindowLongPtrA(get_curr_hwnd(g_curr_desk), GWL_STYLE);
+        if(!is_actual_window(chwnd)) return DefWindowProc(hwnd, uMsg, wParam, lParam);
         switch(wParam) {
             case HSHELL_WINDOWACTIVATED:
-            case HSHELL_MONITORCHANGED:
-                if(!is_actual_window(chwnd)) break;
-                if(id == -1) {
-                    goto add_window;
-                }
-                long curr_wnd_style = GetWindowLongPtrA(get_curr_hwnd(g_curr_desk), GWL_STYLE);
+            case HSHELL_MONITORCHANGED: {
+                if(id == -1) goto add_window;
                 if(!is_param_in_xor(curr_wnd_style, WS_VISIBLE) || (is_param_in_xor(curr_wnd_style, WS_MINIMIZE) && !g_curr_desk.wnd_list[g_curr_desk.curr_wnd].is_freeroam)) {
                     printf("Assuming that window %d is closing...\n", g_curr_desk.curr_wnd);
                     if(!g_curr_desk.wnd_list[g_curr_desk.curr_wnd].is_freeroam) {
@@ -583,13 +580,16 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 printf("Window %d activated\n", id);
                 g_curr_desk.curr_wnd = id;
                 break;
-            case HSHELL_WINDOWCREATED:
-                if(!is_actual_window(chwnd)) break;
+            }
+            case HSHELL_WINDOWCREATED: {
                 if(id != -1) break;
                 add_window:
                 printf("New window is opened\n");
-                insert_new_wnd(&g_curr_desk.wnd_list, &g_curr_desk.wnd_count, (WIMAN_WINDOW){ .hwnd = chwnd }, g_curr_desk.tiling_count - 1);
-                g_curr_desk.tiling_count++;
+                if(!is_resizable(curr_wnd_style)) {
+                    append_new_wnd(&g_curr_desk.wnd_list, &g_curr_desk.wnd_count, (WIMAN_WINDOW){ .hwnd = chwnd, .is_unresizable = TRUE, .is_freeroam = TRUE });
+                } else {
+                    insert_new_wnd(&g_curr_desk.wnd_list, &g_curr_desk.wnd_count, (WIMAN_WINDOW){ .hwnd = chwnd }, g_curr_desk.tiling_count++ - 1);
+                }
                 // print_windows_list(&wiman_state.windows_list, " - ");
                 switch(g_curr_desk.mode) {
                     case WMM_STACK:
@@ -604,6 +604,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     default:
                         break;
                 }
+            }
         }
         #undef hwnd
         return DefWindowProc(hwnd, uMsg, wParam, lParam);
