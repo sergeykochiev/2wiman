@@ -9,6 +9,7 @@
 #include <math.h>
 
 #define MODIFIER_KEY VK_CAPITAL
+#define order_wnd_z(hwnd, pos) SetWindowPos(hwnd, pos, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
 #define is_param_in_xor(xor, param) ((xor | param) == xor)
 #define is_wh_equal_rect(a, b) (((a.bottom - a.top) == (b.bottom - b.top)) && ((a.right - a.left) == (b.right - b.left)))
 #define is_pressed(key) HIWORD(GetKeyState(key)) != 0
@@ -256,7 +257,7 @@ HWND create_main_window(HINSTANCE *hInstance) {
     return hwnd;
 }
 
-BOOL monitor_proc(HMONITOR hmonitor, HDC hdc, LPRECT lpRect, LPARAM lParam) {
+BOOL enum_monitors(HMONITOR hmonitor, HDC hdc, LPRECT lpRect, LPARAM lParam) {
     #define wms ((WIMAN_STATE*)lParam)
     wms->monitor_count++;
     WIN_MONITOR *monitors = realloc(wms->monitors, sizeof(WIN_MONITOR) * wms->monitor_count);
@@ -276,13 +277,16 @@ BOOL CALLBACK enum_wnd(HWND hwnd, LPARAM lParam) {
     if(!is_actual_window(hwnd)) return TRUE;
     #define wmds ((WIMAN_DESKTOP_STATE*)lParam)
     DWORD dxStyle = GetWindowLongPtrA(hwnd, GWL_STYLE);
-    if(!is_resizable(dxStyle)) return !append_new_wnd(&wmds->wnd_list, &wmds->wnd_count, (WIMAN_WINDOW){ .is_unresizable = TRUE, .is_freeroam = TRUE, .hwnd = hwnd });
+    if(!is_resizable(dxStyle)) {
+        order_wnd_z(hwnd, HWND_TOPMOST);
+        return !append_new_wnd(&wmds->wnd_list, &wmds->wnd_count, (WIMAN_WINDOW){ .is_unresizable = TRUE, .is_freeroam = TRUE, .hwnd = hwnd });
+    };
     return !insert_new_wnd(&wmds->wnd_list, &wmds->wnd_count, (WIMAN_WINDOW){ .hwnd = hwnd }, wmds->tiling_count++ - 1);
     #undef wmds
 }
 
 int move_wnd_to_desk(WIMAN_DESKTOP_STATE *desk_from, int wnd, WIMAN_DESKTOP_STATE *desk_to) {
-    // ShowWindow(desk_from->wnd_list[wnd].hwnd, SW_HIDE);
+    ShowWindow(desk_from->wnd_list[wnd].hwnd, SW_HIDE);
     insert_new_wnd(&desk_to->wnd_list, &desk_to->wnd_count, desk_from->wnd_list[wnd], desk_to->tiling_count - 1);
     desk_to->tiling_count += !desk_from->wnd_list[wnd].is_freeroam;
     desk_from->tiling_count -= !desk_from->wnd_list[wnd].is_freeroam;
@@ -304,19 +308,19 @@ int move_wnd_to_desk(WIMAN_DESKTOP_STATE *desk_from, int wnd, WIMAN_DESKTOP_STAT
 
 int toggle_wnd_freeroam(WIMAN_DESKTOP_STATE *wmds, int idx, WIN_MONITOR *wm) {
     #define wnd wmds->wnd_list[idx]
-    if(wnd.is_unresizable) return 0;
+    if(wnd.is_unresizable) return 2;
     int i = wmds->tiling_count - 1;
     if(!wnd.is_freeroam) {
         int offset = (wmds->wnd_count - wmds->tiling_count) * 32;
         if(!SetWindowPos(wnd.hwnd, HWND_TOPMOST, wm->w / 6 + offset, wm->h / 6 + offset, wm->w / 3 * 2, wm->h / 3 * 2, 0)) return 1;
         wmds->tiling_count--;
     } else {
-        if(!SetWindowPos(wnd.hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)) return 1;
+        order_wnd_z(wnd.hwnd, HWND_NOTOPMOST);
         i++;
         wmds->tiling_count++;
     }
-    switch_wnds(&wmds->wnd_list, idx, i);
     wnd.is_freeroam = !wnd.is_freeroam;
+    switch_wnds(&wmds->wnd_list, idx, i);
     wmds->curr_wnd = i;
     printf("Toggled window %d freeroam %s\n", idx + 1, wnd.is_freeroam ? "ON" : "OFF");
     #undef wnd
@@ -375,8 +379,8 @@ int tile_windows_horiz(WIMAN_DESKTOP_STATE *wmds, WIN_MONITOR *wm) {
 
 // Used when in stack mode by refocus_window().
 int set_window_ontop(HWND curr) {
-    SetWindowPos(curr, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
-    SetWindowPos(curr, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+    order_wnd_z(curr, HWND_TOPMOST);
+    order_wnd_z(curr, HWND_NOTOPMOST);
     SetForegroundWindow(curr);
     return 0;
 }
@@ -426,7 +430,7 @@ int init_curr_mode_reposition(WIMAN_DESKTOP_STATE *wmds, WIN_MONITOR *wm) {
 int switch_desc_to(WIMAN_STATE *wms, int new_desk_idx) {
     #define wnd wms->desk_list[wms->curr_desk].wnd_list[i]
     int i;
-    // for(i = 0; i < wms->desk_list[wms->curr_desk].wnd_count; i++) ShowWindow(wnd.hwnd, SW_HIDE);
+    for(i = 0; i < wms->desk_list[wms->curr_desk].wnd_count; i++) ShowWindow(wnd.hwnd, SW_HIDE);
     wms->curr_desk = new_desk_idx;
     if(wms->desk_list[wms->curr_desk].changed) {
         init_curr_mode_reposition(&wms->desk_list[wms->curr_desk], &wms->monitors[wms->desk_list[wms->curr_desk].curr_monitor]);
@@ -438,7 +442,8 @@ int switch_desc_to(WIMAN_STATE *wms, int new_desk_idx) {
     return 0;
 }
 
-// (not sure) TODO FIX fullscreen apps (games) doesn't allow to capture key input and doesn't hide/show properly
+// TODO FIX sometimes app crashes on window open
+// TODO FIX SOME (NOT ALL) fullscreen apps (games) doesn't allow to capture key input and doesn't hide/show properly
 // TODO implement desktops relation to monitors (them being on one monitor at a time) and keeping all minitor sizes. Also freeroam windows should be allowed to change monitors (active desktops by dragging and dropping)
 // (works, needs further testing) TODO .IDEA if cannot set the position make it freeroam and add some flag like is_permanenty_freeroam (is_unresizable)
 // (fixed) TODO FIX when moving last window off of virtual desk segfault occurs
@@ -476,7 +481,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     Shell_NotifyIconA(NIM_ADD, &icon_data);
 
     wms.monitors = calloc(0, sizeof(WIN_MONITOR));
-    EnumDisplayMonitors(NULL, NULL, monitor_proc, (LPARAM)&wms);
+    EnumDisplayMonitors(NULL, NULL, enum_monitors, (LPARAM)&wms);
     printf("Fetched %lld monitors\n", wms.monitor_count);
 
     wms.curr_desk = 0;
@@ -550,7 +555,7 @@ LRESULT CALLBACK keyboard_proc(int nCode, WPARAM wParam, LPARAM lParam) {
             init_curr_mode_reposition(&g_curr_desk, &wms.monitors[g_curr_desk.curr_monitor]);
             break;
         case VK_SPACE:
-            toggle_wnd_freeroam(&g_curr_desk, g_curr_desk.curr_wnd, &wms.monitors[g_curr_desk.curr_monitor]);
+            if(toggle_wnd_freeroam(&g_curr_desk, g_curr_desk.curr_wnd, &wms.monitors[g_curr_desk.curr_monitor]) == 2) break;
             init_curr_mode_reposition(&g_curr_desk, &wms.monitors[g_curr_desk.curr_monitor]);
             break;
         case 'R':
@@ -587,12 +592,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         int id;
         #define chwnd (HWND)lParam
         id = get_wnd_id_by_hwnd(&g_curr_desk, chwnd);
-        long curr_wnd_style = GetWindowLongPtrA(get_curr_hwnd(g_curr_desk), GWL_STYLE);
         if(!is_actual_window(chwnd)) return DefWindowProc(hwnd, uMsg, wParam, lParam);
         switch(wParam) {
             case HSHELL_WINDOWACTIVATED:
             case HSHELL_MONITORCHANGED: {
                 if(id == -1) goto add_window;
+                long curr_wnd_style = GetWindowLongPtrA(get_curr_hwnd(g_curr_desk), GWL_STYLE);
                 if(!is_param_in_xor(curr_wnd_style, WS_VISIBLE) || (is_param_in_xor(curr_wnd_style, WS_MINIMIZE) && !g_curr_desk.wnd_list[g_curr_desk.curr_wnd].is_freeroam)) {
                     printf("Assuming that window %d is closing...\n", g_curr_desk.curr_wnd);
                     if(!g_curr_desk.wnd_list[g_curr_desk.curr_wnd].is_freeroam) {
@@ -609,21 +614,23 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 if(id != -1) break;
                 add_window:
                 printf("New window is opened\n");
-                if(!is_resizable(curr_wnd_style)) {
+                long wnd_style = GetWindowLongPtrA(chwnd, GWL_STYLE);
+                if(!is_resizable(wnd_style)) {
+                    order_wnd_z(chwnd, HWND_TOPMOST);
                     append_new_wnd(&g_curr_desk.wnd_list, &g_curr_desk.wnd_count, (WIMAN_WINDOW){ .hwnd = chwnd, .is_unresizable = TRUE, .is_freeroam = TRUE });
-                } else {
-                    insert_new_wnd(&g_curr_desk.wnd_list, &g_curr_desk.wnd_count, (WIMAN_WINDOW){ .hwnd = chwnd }, g_curr_desk.tiling_count++ - 1);
+                    break;
                 }
+                insert_new_wnd(&g_curr_desk.wnd_list, &g_curr_desk.wnd_count, (WIMAN_WINDOW){ .hwnd = chwnd }, g_curr_desk.tiling_count++ - 1);
                 // print_windows_list(&wiman_state.windows_list, " - ");
                 switch(g_curr_desk.mode) {
                     case WMM_STACK:
                         SetWindowPos(chwnd, HWND_TOPMOST, 0, 0, wms.monitors[g_curr_desk.curr_monitor].w, wms.monitors[g_curr_desk.curr_monitor].h, 0);
-                        SetWindowPos(chwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+                        order_wnd_z(chwnd, HWND_NOTOPMOST);
                         SetForegroundWindow(chwnd);
                         break;
                     case WMM_TILING_H:
                     case WMM_TILING_V:
-                        SetWindowPos(chwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+                        order_wnd_z(chwnd, HWND_NOTOPMOST);
                         init_curr_mode_reposition(&g_curr_desk, &wms.monitors[g_curr_desk.curr_monitor]);
                     default:
                         break;
