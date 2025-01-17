@@ -537,6 +537,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     wms.monitors = calloc(0, sizeof(WIN_MONITOR));
     EnumDisplayMonitors(NULL, NULL, enum_monitors, (LPARAM)&wms);
     printf("Fetched %lld monitors\n", wms.monitor_count);
+    for(int i = wms.monitor_count; i < DESK_COUNT; i++) {
+        wms.desk_list[i].on_monitor = -1;
+    }
 
     WM_SHELLHOOKMESSAGE = RegisterWindowMessage(TEXT("SHELLHOOK"));
 
@@ -613,15 +616,16 @@ LRESULT CALLBACK keyboard_proc(int nCode, WPARAM wParam, LPARAM lParam) {
             init_curr_mode_reposition(&g_curr_desk, &wms.monitors[g_curr_desk.on_monitor]);
             break;
         case 'D':
-            print_debug_info(&wms, TRUE);
+            print_debug_info(&wms, FALSE);
             break;
         case 49 ... 57:
             int target = key->vkCode - 49;
-            int is_same_monitor = g_curr_desk.on_monitor == wms.desk_list[target].on_monitor;
+            WIMAN_DESKTOP_STATE *target_desk = &wms.desk_list[target];
+            int is_same_monitor = g_curr_desk.on_monitor == target_desk->on_monitor;
             if(is_pressed(VK_SHIFT)) {
                 if(target == wms.curr_desk) break;
-                if(!wms.desk_list[target].wnd_count && !is_same_monitor) {
-                    wms.desk_list[target].on_monitor = g_curr_desk.on_monitor;
+                if(!target_desk->wnd_count && !is_same_monitor) {
+                    target_desk->on_monitor = g_curr_desk.on_monitor;
                     wms.monitors[g_curr_desk.on_monitor].desk_count += 1;
                 }
                 int new_wnd_idx = move_wnd_to_desk(&g_curr_desk, g_curr_desk.curr_wnd, &wms.desk_list[target]);
@@ -632,7 +636,7 @@ LRESULT CALLBACK keyboard_proc(int nCode, WPARAM wParam, LPARAM lParam) {
                     init_curr_mode_reposition(&g_curr_desk, &wms.monitors[g_curr_desk.on_monitor]);
                     g_curr_desk.curr_wnd = new_wnd_idx;
                 } else {
-                    wms.desk_list[target].changed = TRUE;
+                    target_desk->changed = TRUE;
                 }
                 break;
             }
@@ -644,35 +648,32 @@ LRESULT CALLBACK keyboard_proc(int nCode, WPARAM wParam, LPARAM lParam) {
                 break;
             }
             if(target == wms.curr_desk) break;
-            // if((wms.desk_list[target].wnd_count && g_curr_desk.on_monitor == wms.desk_list[target].on_monitor || !wms.desk_list[target].wnd_count) && g_curr_desk.is_main && !g_curr_desk.wnd_count) {
+            // if((target_desk->wnd_count && g_curr_desk.on_monitor == target_desk->on_monitor || !target_desk->wnd_count) && g_curr_desk.is_main && !g_curr_desk.wnd_count) {
             //     g_curr_desk.is_main = FALSE;
-            //     wms.desk_list[target].is_main = TRUE;
-            //     wms.desk_list[target].on_monitor = g_curr_desk.on_monitor;
+            //     target_desk->is_main = TRUE;
+            //     target_desk->on_monitor = g_curr_desk.on_monitor;
             // }
-            if(!wms.desk_list[target].wnd_count && wms.monitors[wms.desk_list[target].on_monitor].desk_count > 1) {
-                wms.desk_list[target].on_monitor = g_curr_desk.on_monitor;
+            if(!target_desk->wnd_count && (target_desk->on_monitor == -1 || wms.monitors[target_desk->on_monitor].desk_count > 1)) {
+                printf("DUPA\n");
+                target_desk->on_monitor = g_curr_desk.on_monitor;
                 wms.monitors[g_curr_desk.on_monitor].desk_count += 1;
             }
             if(!g_curr_desk.wnd_count && wms.monitors[g_curr_desk.on_monitor].desk_count > 1) {
                 wms.monitors[g_curr_desk.on_monitor].desk_count -= 1;
-                g_curr_desk.on_monitor = 0;
+                g_curr_desk.on_monitor = -1;
             }
             #define wnd g_curr_desk.wnd_list[i]
             int i;
             if(is_same_monitor) for(i = 0; i < g_curr_desk.wnd_count; i++) ShowWindow(wnd.hwnd, SW_HIDE);
-            if(!g_curr_desk.wnd_count && wms.monitors[g_curr_desk.on_monitor].desk_count > 1) {
-                g_curr_desk.on_monitor = 0;
-            }
             InvalidateRect(wms.monitors[g_curr_desk.on_monitor].child_hwnd, 0, TRUE);
             wms.curr_desk = target;
-            if(!is_same_monitor) {
-                InvalidateRect(wms.monitors[g_curr_desk.on_monitor].child_hwnd, 0, TRUE);
-            }
+            // Figure out when other window should be updated
+            InvalidateRect(wms.monitors[g_curr_desk.on_monitor].child_hwnd, 0, TRUE);
             if(g_curr_desk.changed || !is_same_monitor) {
                 init_curr_mode_reposition(&g_curr_desk, &wms.monitors[g_curr_desk.on_monitor]);
                 g_curr_desk.changed = FALSE;
             }
-            wms.monitors[wms.desk_list[target].on_monitor].front_desk = target;
+            wms.monitors[target_desk->on_monitor].front_desk = target;
             if(is_same_monitor) for(i = 0; i < g_curr_desk.wnd_count; i++) ShowWindow(wnd.hwnd, SW_SHOW);
             #undef wnd
             printf("Switched to desktop %d\n", target + 1);
