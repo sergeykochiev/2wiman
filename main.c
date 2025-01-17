@@ -2,22 +2,25 @@
 #include <minwindef.h>
 #include <windef.h>
 #include "C:\Users\dupa\gcc\x86_64-w64-mingw32\include\wingdi.h"
+#include <wingdi.h>
 #include <winuser.h>
 #include <stdio.h>
 #include <wchar.h>
 #include <math.h>
 
-static const COLORREF BG_COLOR = 0x00686664;
+static const COLORREF BG_COLOR = 0x00444444;
 static const COLORREF DESK_COLOR = 0x00878787;
-static const COLORREF DESK_BG_COLOR = 0x000ADAFF;
+static const COLORREF DESK_BG_COLOR = 0x006B979E;
 static const COLORREF ACTIVE_DESK_COLOR = 0x00BC750B;
 static const COLORREF ACTIVE_DESK_BG_COLOR = 0x00FFDA0A;
 static const COLORREF DESK_COLORS[2] = { [FALSE] = DESK_COLOR, [TRUE] = ACTIVE_DESK_COLOR };
 static const COLORREF DESK_BG_COLORS[2] = { [FALSE] = DESK_BG_COLOR, [TRUE] = ACTIVE_DESK_BG_COLOR };
-static const POINT DESK_TILE_SIZE = { 50, 50 };
+static const POINT DESK_TILE_SIZE = { 40, 40 };
+static const char WINDOW_CLASSNAME[] = "2wiman";
 #define DESK_COUNT 9
-
+#define TILE_OFFSET 3
 #define MODIFIER_KEY VK_CAPITAL
+
 #define order_wnd_z(hwnd, pos) SetWindowPos(hwnd, pos, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
 #define is_param_in_xor(xor, param) ((xor | param) == xor)
 #define is_wh_equal_rect(a, b) (((a.bottom - a.top) == (b.bottom - b.top)) && ((a.right - a.left) == (b.right - b.left)))
@@ -27,9 +30,11 @@ static const POINT DESK_TILE_SIZE = { 50, 50 };
 #define get_curr_hwnd(wmds) (wmds).wnd_list[(wmds).curr_wnd].hwnd
 #define g_curr_desk wms.desk_list[wms.curr_desk]
 #define print_rect(rect) printf("left %ld, top %ld, right %ld, bottom %ld", rect.left , rect.top, rect.right, rect.bottom);
+
 void print_ex_styles(long ex_styles) {
     if(is_param_in_xor(ex_styles, WS_EX_ACCEPTFILES)) printf("WS_EX_ACCEPTFILES, "); if(is_param_in_xor(ex_styles, WS_EX_APPWINDOW)) printf("WS_EX_APPWINDOW, "); if(is_param_in_xor(ex_styles, WS_EX_CLIENTEDGE)) printf("WS_EX_CLIENTEDGE, "); if(is_param_in_xor(ex_styles, WS_EX_COMPOSITED)) printf("WS_EX_COMPOSITED, "); if(is_param_in_xor(ex_styles, WS_EX_CONTEXTHELP)) printf("WS_EX_CONTEXTHELP, "); if(is_param_in_xor(ex_styles, WS_EX_CONTEXTHELP)) printf("WS_EX_CONTEXTHELP, "); if(is_param_in_xor(ex_styles, WS_EX_CONTROLPARENT)) printf("WS_EX_CONTROLPARENT, "); if(is_param_in_xor(ex_styles, WS_EX_DLGMODALFRAME)) printf("WS_EX_DLGMODALFRAME, "); if(is_param_in_xor(ex_styles, WS_EX_LAYERED)) printf("WS_EX_LAYERED, "); if(is_param_in_xor(ex_styles, WS_EX_LAYOUTRTL)) printf("WS_EX_LAYOUTRTL, "); if(is_param_in_xor(ex_styles, WS_EX_LEFT)) printf("WS_EX_LEFT, "); if(is_param_in_xor(ex_styles, WS_EX_LEFTSCROLLBAR)) printf("WS_EX_LEFTSCROLLBAR, "); if(is_param_in_xor(ex_styles, WS_EX_LTRREADING)) printf("WS_EX_LTRREADING, "); if(is_param_in_xor(ex_styles, WS_EX_MDICHILD)) printf("WS_EX_MDICHILD, "); if(is_param_in_xor(ex_styles, WS_EX_NOACTIVATE)) printf("WS_EX_NOACTIVATE, "); if(is_param_in_xor(ex_styles, WS_EX_NOINHERITLAYOUT)) printf("WS_EX_NOINHERITLAYOUT, "); if(is_param_in_xor(ex_styles, WS_EX_NOPARENTNOTIFY)) printf("WS_EX_NOPARENTNOTIFY, "); if(is_param_in_xor(ex_styles, WS_EX_NOREDIRECTIONBITMAP)) printf("WS_EX_NOREDIRECTIONBITMAP, "); if(is_param_in_xor(ex_styles, WS_EX_OVERLAPPEDWINDOW)) printf("WS_EX_OVERLAPPEDWINDOW, "); if(is_param_in_xor(ex_styles, WS_EX_PALETTEWINDOW)) printf("WS_EX_PALETTEWINDOW, "); if(is_param_in_xor(ex_styles, WS_EX_RIGHT)) printf("WS_EX_RIGHT, "); if(is_param_in_xor(ex_styles, WS_EX_RIGHTSCROLLBAR)) printf("WS_EX_RIGHTSCROLLBAR, "); if(is_param_in_xor(ex_styles, WS_EX_RTLREADING)) printf("WS_EX_RTLREADING, "); if(is_param_in_xor(ex_styles, WS_EX_STATICEDGE)) printf("WS_EX_STATICEDGE, "); if(is_param_in_xor(ex_styles, WS_EX_TOOLWINDOW)) printf("WS_EX_TOOLWINDOW, "); if(is_param_in_xor(ex_styles, WS_EX_TOPMOST)) printf("WS_EX_TOPMOST, "); if(is_param_in_xor(ex_styles, WS_EX_TRANSPARENT)) printf("WS_EX_TRANSPARENT, "); if(is_param_in_xor(ex_styles, WS_EX_WINDOWEDGE)) printf("WS_EX_WINDOWEDGE, ");
 }
+
 void print_styles(long styles) {
     if(is_param_in_xor(styles, WS_BORDER)) printf("WS_BORDER, "); if(is_param_in_xor(styles, WS_CAPTION)) printf("WS_CAPTION, "); if(is_param_in_xor(styles, WS_CHILD)) printf("WS_CHILD, "); if(is_param_in_xor(styles, WS_CHILDWINDOW)) printf("WS_CHILDWINDOW, "); if(is_param_in_xor(styles, WS_CLIPCHILDREN)) printf("WS_CLIPCHILDREN, "); if(is_param_in_xor(styles, WS_CLIPSIBLINGS)) printf("WS_CLIPSIBLINGS, "); if(is_param_in_xor(styles, WS_DISABLED)) printf("WS_DISABLED, "); if(is_param_in_xor(styles, WS_DLGFRAME)) printf("WS_DLGFRAME, "); if(is_param_in_xor(styles, WS_GROUP)) printf("WS_GROUP, "); if(is_param_in_xor(styles, WS_HSCROLL)) printf("WS_HSCROLL, "); if(is_param_in_xor(styles, WS_ICONIC)) printf("WS_ICONIC, "); if(is_param_in_xor(styles, WS_MAXIMIZE)) printf("WS_MAXIMIZE, "); if(is_param_in_xor(styles, WS_MAXIMIZEBOX)) printf("WS_MAXIMIZEBOX, "); if(is_param_in_xor(styles, WS_MINIMIZE)) printf("WS_MINIMIZE, "); if(is_param_in_xor(styles, WS_MINIMIZEBOX)) printf("WS_MINIMIZEBOX, "); if(is_param_in_xor(styles, WS_OVERLAPPED)) printf("WS_OVERLAPPED, "); if(is_param_in_xor(styles, WS_OVERLAPPEDWINDOW)) printf("WS_OVERLAPPEDWINDOW, "); if(is_param_in_xor(styles, WS_POPUPWINDOW)) printf("WS_POPUPWINDOW, "); if(is_param_in_xor(styles, WS_SIZEBOX)) printf("WS_SIZEBOX, "); if(is_param_in_xor(styles, WS_SYSMENU)) printf("WS_SYSMENU, "); if(is_param_in_xor(styles, WS_TABSTOP)) printf("WS_TABSTOP, "); if(is_param_in_xor(styles, WS_THICKFRAME)) printf("WS_THICKFRAME, "); if(is_param_in_xor(styles, WS_TILED)) printf("WS_TILED, "); if(is_param_in_xor(styles, WS_TILEDWINDOW)) printf("WS_TILEDWINDOW, "); if(is_param_in_xor(styles, WS_VISIBLE)) printf("WS_VISIBLE, "); if(is_param_in_xor(styles, WS_VSCROLL)) printf("WS_VSCROLL, ");
 }
@@ -71,7 +76,6 @@ typedef struct {
     WIMAN_MODE mode;
     int changed;
     int on_monitor;
-    int is_main;
 } WIMAN_DESKTOP_STATE;
 
 typedef struct {
@@ -111,25 +115,70 @@ void wnd_msg_proc(
   DWORD dwmsEventTime
 );
 
-void print_windowinfo(WINDOWINFO *info) {
-    printf("      cdSize: %lu\n", info->cbSize);
-    printf("      rcWindow: ");
+void print_windowinfo(WINDOWINFO *info, const char prefix[]) {
+    printf("%scdSize: %lu\n", prefix, info->cbSize);
+    printf("%srcWindow: ", prefix);
     print_rect(info->rcWindow);
     printf("\n");
-    printf("      rcClient: ");
+    printf("%srcClient: ", prefix);
     print_rect(info->rcClient);
     printf("\n");
-    printf("      dwStyle: ");
+    printf("%sdwStyle: ", prefix);
     print_styles(info->dwStyle);
     printf("\n");
-    printf("      dwExStyle: ");
+    printf("%sdwExStyle: ", prefix);
     print_ex_styles(info->dwExStyle);
     printf("\n");
-    printf("      dwWindowStatus: %lu\n", info->dwWindowStatus);
-    printf("      cxWindowBorders: %u\n", info->cxWindowBorders);
-    printf("      cyWindowBorders: %u\n", info->cyWindowBorders);
-    printf("      atomWindowType: %hu\n", info->atomWindowType);
-    printf("      wCreatorVersion: %hu\n", info->wCreatorVersion);
+    printf("%sdwWindowStatus: %lu\n", prefix, info->dwWindowStatus);
+    printf("%scxWindowBorders: %u\n", prefix, info->cxWindowBorders);
+    printf("%scyWindowBorders: %u\n", prefix, info->cyWindowBorders);
+    printf("%satomWindowType: %hu\n", prefix, info->atomWindowType);
+    printf("%swCreatorVersion: %hu\n", prefix, info->wCreatorVersion);
+}
+
+int print_windows_list(WIMAN_WINDOW **wndl, size_t len) {
+    char *title = malloc(0);
+    int length;
+    WINDOWINFO wi;
+    for(int i = 0; i < len; i++) {
+        #define wnd (*wndl)[i]
+        length = GetWindowTextLengthA(wnd.hwnd);
+        char *new_title = realloc(title, length + 1);
+        if(new_title == NULL) return 1;
+        title = new_title;
+        GetWindowTextA(wnd.hwnd, title, length + 1);
+        printf("   - Window %d%s: \"%s\"\n", i + 1, wnd.is_freeroam ? wnd.is_unresizable ? " (freeroam, unresizable)" : " (freeroam)" : "", title);
+        GetWindowInfo(wnd.hwnd, &wi);
+        print_windowinfo(&wi, "       ");
+    }
+    free(title);
+    #undef wnd
+    return 0;
+}
+
+void print_debug_info(WIMAN_STATE *wms, BOOL verbose) {
+    #define wmds wms->desk_list[i]
+    #define mn wms->monitors[i]
+    printf("\n============DEBUG-INFO============\n");
+    printf("%lld monitors:\n", wms->monitor_count);
+    WINDOWINFO pwi = {
+        .cbSize = sizeof(WINDOWINFO)
+    };
+    for(int i = 0; i < wms->monitor_count; i++) {
+        printf("               Monitor %d: %dx%d%s - showing desk %d (%lld total)\n", i + 1, mn.w, mn.h, i == 0 ? " (primary)" : "", mn.front_desk + 1, mn.desk_count);
+        if(verbose) {
+            GetWindowInfo(mn.child_hwnd, &pwi);
+            print_windowinfo(&pwi, "               ");
+        }
+    }
+    printf("\n");
+    for(int i = 0; i < DESK_COUNT; i++) {
+        printf("DESK %d (monitor %d): %lld wnds (%lld tiling) - %s%s\n", i + 1, wmds.on_monitor + 1, wmds.wnd_count, wmds.tiling_count, WMM_NAMES[wmds.mode], i == wms->curr_desk ? " ACTIVE" : "");
+        if(verbose) print_windows_list(&wmds.wnd_list, wmds.wnd_count);
+    }
+    printf("==========END-DEBUG-INFO==========\n\n");
+    #undef wmds
+    #undef mn
 }
 
 int append_new_wnd(WIMAN_WINDOW **wndl, size_t *len, WIMAN_WINDOW w) {
@@ -199,45 +248,6 @@ void switch_hwnds_pos(WIMAN_WINDOW **wndl, int first, int second, WINDOWPLACEMEN
     printf("Switched HWNDs of windows %d and %d and repositioned them\n", first + 1, second + 1);
 }
 
-
-int print_windows_list(WIMAN_WINDOW **wndl, size_t len) {
-    char *title = malloc(0);
-    int length;
-    WINDOWINFO wi;
-    for(int i = 0; i < len; i++) {
-        #define wnd (*wndl)[i]
-        length = GetWindowTextLengthA(wnd.hwnd);
-        char *new_title = realloc(title, length + 1);
-        if(new_title == NULL) return 1;
-        title = new_title;
-        GetWindowTextA(wnd.hwnd, title, length + 1);
-        printf("   - Window %d%s: \"%s\"\n", i + 1, wnd.is_freeroam ? wnd.is_unresizable ? " (freeroam, unresizable)" : " (freeroam)" : "", title);
-        GetWindowInfo(wnd.hwnd, &wi);
-        print_windowinfo(&wi);
-    }
-    free(title);
-    #undef wnd
-    return 0;
-}
-
-void print_debug_info(WIMAN_STATE *wms, BOOL verbose) {
-    #define wmds wms->desk_list[i]
-    #define mn wms->monitors[i]
-    printf("\n============DEBUG-INFO============\n");
-    printf("%lld monitors: ", wms->monitor_count);
-    for(int i = 0; i < wms->monitor_count; i++) {
-        printf("Monitor %d: %dx%d%s - showing desk %d (%lld total)\n               ", i + 1, mn.w, mn.h, i == 0 ? " (primary)" : "", mn.front_desk + 1, wms->monitors[i].desk_count);
-    }
-    printf("\n");
-    for(int i = 0; i < DESK_COUNT; i++) {
-        printf("DESK %d (monitor %d): %lld wnds (%lld tiling) - %s%s\n", i + 1, wmds.on_monitor + 1, wmds.wnd_count, wmds.tiling_count, WMM_NAMES[wmds.mode], i == wms->curr_desk ? " ACTIVE" : "");
-        if(verbose) print_windows_list(&wmds.wnd_list, wmds.wnd_count);
-    }
-    printf("==========END-DEBUG-INFO==========\n\n");
-    #undef wmds
-    #undef mn
-}
-
 int get_wnd_id_by_hwnd(WIMAN_DESKTOP_STATE *wmds, HWND hwnd) {
     for(int i = 0; i < wmds->wnd_count; i++) {
         if(wmds->wnd_list[i].hwnd == hwnd) return i;
@@ -267,24 +277,18 @@ int is_actual_window(HWND hwnd) {
 }
 
 HWND create_window(HINSTANCE *hInstance, HWND hwnd_parent, int offset_left) {
-    const char ClassName[] = "mywindow";
-    WNDCLASS wc = {};
-    wc.lpfnWndProc = WindowProc;
-    wc.hInstance = *hInstance;
-    wc.lpszClassName = ClassName;
-    RegisterClass(&wc);
     HWND hwnd = CreateWindowExA(
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-        ClassName,
+        WINDOW_CLASSNAME,
         "mywindow",
-        (hwnd_parent == NULL) & WS_CHILDWINDOW,
+        0,
         offset_left, 0, DESK_TILE_SIZE.x * DESK_COUNT, DESK_TILE_SIZE.y,
         hwnd_parent,
         NULL,
         *hInstance,
         NULL
     );
-    SetWindowLong(hwnd, GWL_STYLE, 0);
+    SetWindowLongPtrA(hwnd, GWL_STYLE, (hwnd_parent != NULL) << 30 & WS_CHILDWINDOW);
     return hwnd;
 }
 
@@ -301,7 +305,6 @@ BOOL enum_monitors(HMONITOR hmonitor, HDC hdc, LPRECT lpRect, LPARAM lParam) {
     wm.w = lpmi.rcWork.right - lpmi.rcWork.left;
     wm.pos = lpmi.rcWork;
     wms->desk_list[wms->monitor_count - 1].on_monitor = wms->monitor_count - 1;
-    wms->desk_list[wms->monitor_count - 1].is_main = TRUE;
     if(is_param_in_xor(lpmi.dwFlags, MONITORINFOF_PRIMARY)) {
         printf("Found primary monitor (%lld)\n", wms->monitor_count);
         wms->monitors[wms->monitor_count - 1] = wms->monitors[0];
@@ -502,6 +505,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     wms.dpi = GetDpiForSystem();
     printf("DPI is %d\n", wms.dpi);
 
+    WNDCLASS wc = {};
+    wc.lpfnWndProc = WindowProc;
+    wc.hInstance = hInstance;
+    wc.lpszClassName = WINDOW_CLASSNAME;
+    RegisterClass(&wc);
     wms.main_hwnd = create_window(&hInstance, NULL, 0);
     ShowWindow(wms.main_hwnd, nShowCmd);
 
@@ -605,14 +613,14 @@ LRESULT CALLBACK keyboard_proc(int nCode, WPARAM wParam, LPARAM lParam) {
             init_curr_mode_reposition(&g_curr_desk, &wms.monitors[g_curr_desk.on_monitor]);
             break;
         case 'D':
-            print_debug_info(&wms, FALSE);
+            print_debug_info(&wms, TRUE);
             break;
         case 49 ... 57:
             int target = key->vkCode - 49;
             int is_same_monitor = g_curr_desk.on_monitor == wms.desk_list[target].on_monitor;
             if(is_pressed(VK_SHIFT)) {
                 if(target == wms.curr_desk) break;
-                if(!wms.desk_list[target].wnd_count && !wms.desk_list[target].is_main) {
+                if(!wms.desk_list[target].wnd_count && !is_same_monitor) {
                     wms.desk_list[target].on_monitor = g_curr_desk.on_monitor;
                     wms.monitors[g_curr_desk.on_monitor].desk_count += 1;
                 }
@@ -628,7 +636,7 @@ LRESULT CALLBACK keyboard_proc(int nCode, WPARAM wParam, LPARAM lParam) {
                 }
                 break;
             }
-            if(is_pressed(VK_CONTROL) && !g_curr_desk.is_main) {
+            if(is_pressed(VK_CONTROL) && wms.monitors[g_curr_desk.on_monitor].desk_count > 1) {
                 if(target == g_curr_desk.on_monitor || target >= wms.monitor_count) break;
                 g_curr_desk.on_monitor = target;
                 wms.monitors[target].front_desk = wms.curr_desk;
@@ -641,30 +649,33 @@ LRESULT CALLBACK keyboard_proc(int nCode, WPARAM wParam, LPARAM lParam) {
             //     wms.desk_list[target].is_main = TRUE;
             //     wms.desk_list[target].on_monitor = g_curr_desk.on_monitor;
             // }
-            if(!wms.desk_list[target].wnd_count || !wms.desk_list[target].is_main) {
+            if(!wms.desk_list[target].wnd_count && wms.monitors[wms.desk_list[target].on_monitor].desk_count > 1) {
                 wms.desk_list[target].on_monitor = g_curr_desk.on_monitor;
                 wms.monitors[g_curr_desk.on_monitor].desk_count += 1;
             }
-            if(!g_curr_desk.wnd_count && !g_curr_desk.is_main) {
+            if(!g_curr_desk.wnd_count && wms.monitors[g_curr_desk.on_monitor].desk_count > 1) {
                 wms.monitors[g_curr_desk.on_monitor].desk_count -= 1;
                 g_curr_desk.on_monitor = 0;
             }
-            #define wnd wms.desk_list[wms.curr_desk].wnd_list[i]
+            #define wnd g_curr_desk.wnd_list[i]
             int i;
-            if(is_same_monitor) for(i = 0; i < wms.desk_list[wms.curr_desk].wnd_count; i++) ShowWindow(wnd.hwnd, SW_HIDE);
-            if(wms.desk_list[wms.curr_desk].wnd_count == 0) {
-                wms.desk_list[wms.curr_desk].on_monitor = 0;
+            if(is_same_monitor) for(i = 0; i < g_curr_desk.wnd_count; i++) ShowWindow(wnd.hwnd, SW_HIDE);
+            if(!g_curr_desk.wnd_count && wms.monitors[g_curr_desk.on_monitor].desk_count > 1) {
+                g_curr_desk.on_monitor = 0;
             }
+            InvalidateRect(wms.monitors[g_curr_desk.on_monitor].child_hwnd, 0, TRUE);
             wms.curr_desk = target;
-            if(wms.desk_list[wms.curr_desk].changed || !is_same_monitor) {
-                init_curr_mode_reposition(&wms.desk_list[wms.curr_desk], &wms.monitors[wms.desk_list[wms.curr_desk].on_monitor]);
-                wms.desk_list[wms.curr_desk].changed = FALSE;
+            if(!is_same_monitor) {
+                InvalidateRect(wms.monitors[g_curr_desk.on_monitor].child_hwnd, 0, TRUE);
+            }
+            if(g_curr_desk.changed || !is_same_monitor) {
+                init_curr_mode_reposition(&g_curr_desk, &wms.monitors[g_curr_desk.on_monitor]);
+                g_curr_desk.changed = FALSE;
             }
             wms.monitors[wms.desk_list[target].on_monitor].front_desk = target;
-            if(is_same_monitor) for(i = 0; i < wms.desk_list[wms.curr_desk].wnd_count; i++) ShowWindow(wnd.hwnd, SW_SHOW);
+            if(is_same_monitor) for(i = 0; i < g_curr_desk.wnd_count; i++) ShowWindow(wnd.hwnd, SW_SHOW);
             #undef wnd
             printf("Switched to desktop %d\n", target + 1);
-            InvalidateRect(wms.main_hwnd, 0, TRUE);
         }
         return 2;
     }
@@ -761,13 +772,14 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 int offset = 0;
                 char buffer[2];
                 SetWindowPos(hwnd, 0, ps.rcPaint.left, 0, ps.rcPaint.left + wms.monitors[for_monitor].desk_count * DESK_TILE_SIZE.x, DESK_TILE_SIZE.y, SWP_NOMOVE | SWP_NOZORDER);
-                FillRect(hdc, &ps.rcPaint, (HBRUSH)(COLOR_WINDOW));
+                // FillRect(hdc, &ps.rcPaint, (HBRUSH)(COLOR_WINDOW));
                 for(int i = 0; i < DESK_COUNT; i++) {
                     if(!wms.desk_list[i].wnd_count && wms.monitors[for_monitor].front_desk != i || wms.desk_list[i].on_monitor != for_monitor) {
                         continue;
                     }
                     RECT pos_r = { ps.rcPaint.left + offset, 0, ps.rcPaint.left + offset + DESK_TILE_SIZE.x, 0 + DESK_TILE_SIZE.y };
-                    FillRect(hdc, &pos_r, (HBRUSH)(CreateSolidBrush(DESK_BG_COLORS[i == wms.curr_desk])));
+                    FillRect(hdc, &pos_r, (HBRUSH)(CreateSolidBrush(BG_COLOR)));
+                    FillRect(hdc, &(RECT){ pos_r.left + TILE_OFFSET, pos_r.top + TILE_OFFSET, pos_r.right - TILE_OFFSET, pos_r.bottom - TILE_OFFSET }, (HBRUSH)(CreateSolidBrush(DESK_BG_COLORS[i == wms.curr_desk])));
                     FrameRect(hdc, &pos_r, (HBRUSH)(CreateSolidBrush(DESK_COLORS[i == wms.curr_desk])));
                     sprintf(buffer, "%d", i + 1);
                     offset += DESK_TILE_SIZE.x;
