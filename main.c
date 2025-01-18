@@ -136,7 +136,7 @@ void print_windowinfo(WINDOWINFO *info, const char prefix[]) {
     printf("%swCreatorVersion: %hu\n", prefix, info->wCreatorVersion);
 }
 
-int print_windows_list(WIMAN_WINDOW **wndl, size_t len) {
+int print_windows_list(WIMAN_WINDOW **wndl, size_t len, BOOL verbose) {
     char *title = malloc(0);
     int length;
     WINDOWINFO wi;
@@ -149,7 +149,7 @@ int print_windows_list(WIMAN_WINDOW **wndl, size_t len) {
         GetWindowTextA(wnd.hwnd, title, length + 1);
         printf("   - Window %d%s: \"%s\"\n", i + 1, wnd.is_freeroam ? wnd.is_unresizable ? " (freeroam, unresizable)" : " (freeroam)" : "", title);
         GetWindowInfo(wnd.hwnd, &wi);
-        print_windowinfo(&wi, "       ");
+        if(verbose) print_windowinfo(&wi, "       ");
     }
     free(title);
     #undef wnd
@@ -174,7 +174,7 @@ void print_debug_info(WIMAN_STATE *wms, BOOL verbose) {
     printf("\n");
     for(int i = 0; i < DESK_COUNT; i++) {
         printf("DESK %d (monitor %d): %lld wnds (%lld tiling) - %s%s\n", i + 1, wmds.on_monitor + 1, wmds.wnd_count, wmds.tiling_count, WMM_NAMES[wmds.mode], i == wms->curr_desk ? " ACTIVE" : "");
-        if(verbose) print_windows_list(&wmds.wnd_list, wmds.wnd_count);
+        print_windows_list(&wmds.wnd_list, wmds.wnd_count, verbose);
     }
     printf("==========END-DEBUG-INFO==========\n\n");
     #undef wmds
@@ -478,9 +478,8 @@ int init_curr_mode_reposition(WIMAN_DESKTOP_STATE *wmds, WIN_MONITOR *wm) {
     }
 }
 
-// TODO FIX desktops don't switch properly when cycled with different monitors
+// (scuffed fix has been added) TODO can't catch when a single window is closing
 // TODO .IDEA handle movesizestart event and assign window id to dragging_this and resizing_this flags in state
-// TODO reset desktops to primary monitor when they are uninitialized
 // TODO moving desktop to a window by drag and dropping and uninitializing it when there are no windows. have a single "main" desktop for every monitor, that changes everytime it is empty and abandoned and new dekstop is created. somehow handle monitor changed event, ideally on cursor switch to it.
 // TODO FIX sometimes app crashes on window open
 // TODO FIX SOME (NOT ALL) fullscreen apps (games) doesn't allow to capture key input and doesn't hide/show properly
@@ -514,7 +513,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     ShowWindow(wms.main_hwnd, nShowCmd);
 
     HHOOK keyboard_hook = SetWindowsHookExA(WH_KEYBOARD_LL, keyboard_proc, NULL, 0);
-    HWINEVENTHOOK msg_hook = SetWinEventHook(EVENT_SYSTEM_MOVESIZESTART, EVENT_SYSTEM_MOVESIZEEND, NULL, wnd_msg_proc, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+    HWINEVENTHOOK msg_hook = SetWinEventHook(EVENT_SYSTEM_MOVESIZESTART, EVENT_OBJECT_STATECHANGE, NULL, wnd_msg_proc, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
     RegisterShellHookWindow(wms.main_hwnd);
 
     int icon_uid = 1;
@@ -621,8 +620,8 @@ LRESULT CALLBACK keyboard_proc(int nCode, WPARAM wParam, LPARAM lParam) {
         case 49 ... 57:
             int target = key->vkCode - 49;
             WIMAN_DESKTOP_STATE *target_desk = &wms.desk_list[target];
-            int is_same_monitor = g_curr_desk.on_monitor == target_desk->on_monitor;
             if(is_pressed(VK_SHIFT)) {
+                int is_same_monitor = g_curr_desk.on_monitor == target_desk->on_monitor;
                 if(target == wms.curr_desk) break;
                 if(!target_desk->wnd_count && !is_same_monitor) {
                     target_desk->on_monitor = g_curr_desk.on_monitor;
@@ -654,17 +653,17 @@ LRESULT CALLBACK keyboard_proc(int nCode, WPARAM wParam, LPARAM lParam) {
             //     target_desk->on_monitor = g_curr_desk.on_monitor;
             // }
             if(!target_desk->wnd_count && (target_desk->on_monitor == -1 || wms.monitors[target_desk->on_monitor].desk_count > 1)) {
-                printf("DUPA\n");
                 target_desk->on_monitor = g_curr_desk.on_monitor;
                 wms.monitors[g_curr_desk.on_monitor].desk_count += 1;
             }
+            int is_same_monitor = g_curr_desk.on_monitor == target_desk->on_monitor;
             if(!g_curr_desk.wnd_count && wms.monitors[g_curr_desk.on_monitor].desk_count > 1) {
                 wms.monitors[g_curr_desk.on_monitor].desk_count -= 1;
                 g_curr_desk.on_monitor = -1;
             }
             #define wnd g_curr_desk.wnd_list[i]
             int i;
-            if(is_same_monitor) for(i = 0; i < g_curr_desk.wnd_count; i++) ShowWindow(wnd.hwnd, SW_HIDE);
+            if(is_same_monitor || target_desk->on_monitor == -1) for(i = 0; i < g_curr_desk.wnd_count; i++) ShowWindow(wnd.hwnd, SW_HIDE);
             InvalidateRect(wms.monitors[g_curr_desk.on_monitor].child_hwnd, 0, TRUE);
             wms.curr_desk = target;
             // Figure out when other window should be updated
@@ -690,16 +689,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         // if(wParam == HSHELL_MONITORCHANGED) {
         //     printf("Monitor has changed (event)\n");
         // }
-        if(!is_actual_window(chwnd)) return DefWindowProc(hwnd, uMsg, wParam, lParam);
         switch(wParam) {
             case HSHELL_WINDOWACTIVATED: {
-                int monitor_id = get_monitor_id_by_hmonitor(&wms, MonitorFromWindow(chwnd, MONITOR_DEFAULTTONEAREST));
-                if(monitor_id != g_curr_desk.on_monitor) {
-                    printf("Monitor has changed\n");
-                }
-                wms.curr_desk = wms.monitors[monitor_id].front_desk;
-                int wnd_id = get_wnd_id_by_hwnd(&g_curr_desk, chwnd);
-                if(wnd_id == -1) goto add_window;
                 long curr_wnd_style = GetWindowLongPtrA(get_curr_hwnd(g_curr_desk), GWL_STYLE);
                 if(!is_param_in_xor(curr_wnd_style, WS_VISIBLE) || (is_param_in_xor(curr_wnd_style, WS_MINIMIZE) && !g_curr_desk.wnd_list[g_curr_desk.curr_wnd].is_freeroam)) {
                     printf("Assuming that window %d is closing...\n", g_curr_desk.curr_wnd);
@@ -709,11 +700,20 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     remove_wnd_by_idx(&g_curr_desk.wnd_list, &g_curr_desk.wnd_count, g_curr_desk.curr_wnd);
                     init_curr_mode_reposition(&g_curr_desk, &wms.monitors[g_curr_desk.on_monitor]);
                 }
+                if(!is_actual_window(chwnd)) return DefWindowProc(hwnd, uMsg, wParam, lParam);
+                int monitor_id = get_monitor_id_by_hmonitor(&wms, MonitorFromWindow(chwnd, MONITOR_DEFAULTTONEAREST));
+                if(monitor_id != g_curr_desk.on_monitor) {
+                    printf("Monitor has changed\n");
+                }
+                wms.curr_desk = wms.monitors[monitor_id].front_desk;
+                int wnd_id = get_wnd_id_by_hwnd(&g_curr_desk, chwnd);
+                if(wnd_id == -1) goto add_window;
                 printf("Window %d activated\n", wnd_id);
                 g_curr_desk.curr_wnd = wnd_id;
                 break;
             }
             case HSHELL_WINDOWCREATED: {
+                if(!is_actual_window(chwnd)) return DefWindowProc(hwnd, uMsg, wParam, lParam);
                 // int monitor_id = get_monitor_id_by_hmonitor(&wms, MonitorFromWindow(chwnd, MONITOR_DEFAULTTONEAREST));
                 // if(monitor_id != g_curr_desk.on_monitor) {
                 //     printf("Monitor has changed\n");
@@ -768,23 +768,32 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                         break;
                     }
                 }
-                printf("Repainting window for monitor %d\n", for_monitor + 1);
                 if(hdc == NULL) break;
-                int offset = 0;
+                printf("Repainting window for monitor %d\n", for_monitor + 1);
                 char buffer[2];
                 SetWindowPos(hwnd, 0, ps.rcPaint.left, 0, ps.rcPaint.left + wms.monitors[for_monitor].desk_count * DESK_TILE_SIZE.x, DESK_TILE_SIZE.y, SWP_NOMOVE | SWP_NOZORDER);
                 // FillRect(hdc, &ps.rcPaint, (HBRUSH)(COLOR_WINDOW));
+                RECT pos_r = { ps.rcPaint.left, 0, ps.rcPaint.left + DESK_TILE_SIZE.x, 0 + DESK_TILE_SIZE.y };
+                RECT inner_tile = { pos_r.left + TILE_OFFSET, pos_r.top + TILE_OFFSET, pos_r.right - TILE_OFFSET, pos_r.bottom - TILE_OFFSET };
                 for(int i = 0; i < DESK_COUNT; i++) {
                     if(!wms.desk_list[i].wnd_count && wms.monitors[for_monitor].front_desk != i || wms.desk_list[i].on_monitor != for_monitor) {
                         continue;
                     }
-                    RECT pos_r = { ps.rcPaint.left + offset, 0, ps.rcPaint.left + offset + DESK_TILE_SIZE.x, 0 + DESK_TILE_SIZE.y };
                     FillRect(hdc, &pos_r, (HBRUSH)(CreateSolidBrush(BG_COLOR)));
-                    FillRect(hdc, &(RECT){ pos_r.left + TILE_OFFSET, pos_r.top + TILE_OFFSET, pos_r.right - TILE_OFFSET, pos_r.bottom - TILE_OFFSET }, (HBRUSH)(CreateSolidBrush(DESK_BG_COLORS[i == wms.curr_desk])));
+                    FillRect(hdc, &inner_tile, (HBRUSH)(CreateSolidBrush(DESK_BG_COLORS[i == wms.curr_desk])));
                     FrameRect(hdc, &pos_r, (HBRUSH)(CreateSolidBrush(DESK_COLORS[i == wms.curr_desk])));
                     sprintf(buffer, "%d", i + 1);
-                    offset += DESK_TILE_SIZE.x;
+                    SetBkMode(hdc, TRANSPARENT);
                     DrawTextA(hdc, buffer, -1, &pos_r, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                    if(wms.desk_list[i].wnd_count > 0) {
+                        sprintf(buffer, "%lld", wms.desk_list[i].wnd_count);
+                        SetBkMode(hdc, OPAQUE);
+                        DrawTextA(hdc, buffer, -1, &inner_tile, DT_RIGHT | DT_BOTTOM | DT_SINGLELINE);
+                    }
+                    pos_r.left += DESK_TILE_SIZE.x;
+                    pos_r.right += DESK_TILE_SIZE.x;
+                    inner_tile.left += DESK_TILE_SIZE.x;
+                    inner_tile.right += DESK_TILE_SIZE.x;
                 }
                 EndPaint(hwnd, &ps);
             }
