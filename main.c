@@ -4,6 +4,8 @@
 #include "C:\Users\dupa\gcc\x86_64-w64-mingw32\include\wingdi.h"
 #include <wingdi.h>
 #include <winuser.h>
+#include <commctrl.h>
+#include <windowsx.h>
 #include <stdio.h>
 #include <wchar.h>
 #include <math.h>
@@ -17,6 +19,7 @@ static const COLORREF DESK_COLORS[2] = { [FALSE] = DESK_COLOR, [TRUE] = ACTIVE_D
 static const COLORREF DESK_BG_COLORS[2] = { [FALSE] = DESK_BG_COLOR, [TRUE] = ACTIVE_DESK_BG_COLOR };
 static const POINT DESK_TILE_SIZE = { 40, 40 };
 static const char WINDOW_CLASSNAME[] = "2wiman";
+static const char BUTTON_CLASSNAME[] = "2wiman-control";
 #define DESK_COUNT 9
 #define TILE_OFFSET 3
 #define MODIFIER_KEY VK_CAPITAL
@@ -29,6 +32,7 @@ static const char WINDOW_CLASSNAME[] = "2wiman";
 #define get_curr_hwnd(wmds) (wmds).wnd_list[(wmds).curr_wnd].hwnd
 #define g_curr_desk wms.desk_list[wms.curr_desk]
 #define print_rect(rect) printf("left %ld, top %ld, right %ld, bottom %ld", rect.left , rect.top, rect.right, rect.bottom);
+#define is_point_in_rect(point, rect) (point.x > rect.left && point.x < rect.right && point.y > rect.top && point.y < rect.bottom)
 
 typedef struct {
     int stack_mode_infinite_scroll;
@@ -61,6 +65,9 @@ typedef enum {
 
 typedef struct {
     WIMAN_WINDOW *wnd_list;
+    HWND button_hwnd;
+    int is_hovered;
+    int is_tracking;
     size_t wnd_count;
     size_t tiling_count;
     int curr_wnd;
@@ -95,7 +102,9 @@ const char* const WMM_NAMES[WMM_COUNT] = {
 UINT WM_SHELLHOOKMESSAGE;
 
 LRESULT CALLBACK keyboard_proc(int nCode, WPARAM wParam, LPARAM lParam);
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+LRESULT CALLBACK MainWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+LRESULT CALLBACK GuiWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+LRESULT CALLBACK ButtonWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 void wnd_msg_proc(HWINEVENTHOOK hWinEventHook, DWORD event, HWND hwnd, LONG idObject, LONG idChild, DWORD idEventThread, DWORD dwmsEventTime);
 
 void print_ex_styles(long ex_styles) {
@@ -165,6 +174,10 @@ void print_debug_info(WIMAN_STATE *wms, BOOL verbose) {
     printf("\n");
     for(int i = 0; i < DESK_COUNT; i++) {
         printf("DESK %d (monitor %d): %lld wnds (%lld tiling) - %s%s\n", i + 1, wmds.on_monitor + 1, wmds.wnd_count, wmds.tiling_count, WMM_NAMES[wmds.mode], i == wms->curr_desk ? " ACTIVE" : "");
+        if(verbose) {
+            GetWindowInfo(wmds.button_hwnd, &pwi);
+            print_windowinfo(&pwi, "               ");
+        }
         print_windows_list(&wmds.wnd_list, wmds.wnd_count, verbose);
     }
     printf("==========END-DEBUG-INFO==========\n\n");
@@ -182,6 +195,7 @@ int append_new_wnd(WIMAN_WINDOW **wndl, size_t *len, WIMAN_WINDOW w) {
 }
 
 int insert_new_wnd(WIMAN_WINDOW **wndl, size_t *len, WIMAN_WINDOW w, int after) {
+    printf("Inserting after %d\n", after);
     (*len)++;
     WIMAN_WINDOW *new_wndl = realloc(*wndl, sizeof(WIMAN_WINDOW) * *len);
     if(new_wndl == NULL) return 1;
@@ -204,6 +218,13 @@ int remove_wnd_by_idx(WIMAN_WINDOW **wndl, size_t *len, int idx) {
     if(new_wndl == NULL) return 1;
     *wndl = new_wndl;
     return 0;
+}
+
+// TODO tracking only one of the event doesn't work
+void track_mouse_for(HWND hwnd) {
+    TRACKMOUSEEVENT te = {.cbSize = sizeof(TRACKMOUSEEVENT),.dwFlags = TME_LEAVE | TME_HOVER,.hwndTrack = hwnd,.dwHoverTime = 10};
+    TrackMouseEvent(&te);
+    return;
 }
 
 int position_window(HWND hwnd, WINDOWPLACEMENT *wp, RECT *wr) {
@@ -266,7 +287,7 @@ HWND create_window(HINSTANCE *hInstance, HWND hwnd_parent, int offset_left) {
     HWND hwnd = CreateWindowExA(
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         WINDOW_CLASSNAME,
-        "mywindow",
+        "2wiman",
         0,
         offset_left, 0, DESK_TILE_SIZE.x * DESK_COUNT, DESK_TILE_SIZE.y,
         hwnd_parent,
@@ -278,30 +299,50 @@ HWND create_window(HINSTANCE *hInstance, HWND hwnd_parent, int offset_left) {
     return hwnd;
 }
 
+HWND create_button(HINSTANCE *hInstance, HWND hwnd_parent, int offset_left, int desk) {
+    if(hwnd_parent == NULL) return NULL;
+    HWND hwnd = CreateWindowExA(
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+        BUTTON_CLASSNAME,
+        "2wmctrl",
+        0,
+        offset_left, 0, DESK_TILE_SIZE.x, DESK_TILE_SIZE.y,
+        hwnd_parent,
+        NULL,
+        *hInstance,
+        NULL
+    );
+    SetWindowLongPtrA(hwnd, GWL_STYLE, WS_CHILD | BS_OWNERDRAW);
+    SetWindowLongPtrA(hwnd, -21, desk);
+    track_mouse_for(hwnd);
+    return hwnd;
+}
+
 BOOL enum_monitors(HMONITOR hmonitor, HDC hdc, LPRECT lpRect, LPARAM lParam) {
     #define wms ((WIMAN_STATE*)lParam)
     wms->monitor_count++;
     WIN_MONITOR *monitors = realloc(wms->monitors, sizeof(WIN_MONITOR) * wms->monitor_count);
     if(monitors == NULL) return FALSE;
     wms->monitors = monitors;
-    WIN_MONITOR wm = { .hmonitor = hmonitor, .front_desk = wms->monitor_count - 1, .desk_count = 1 };
     MONITORINFO lpmi = { .cbSize = sizeof(MONITORINFO) };
     GetMonitorInfoA(hmonitor, &lpmi);
+    WIN_MONITOR wm = { .hmonitor = hmonitor, .front_desk = wms->monitor_count - 1, .desk_count = 1 };
     wm.h = lpmi.rcWork.bottom - lpmi.rcWork.top;
     wm.w = lpmi.rcWork.right - lpmi.rcWork.left;
     wm.pos = lpmi.rcWork;
     wms->desk_list[wms->monitor_count - 1].on_monitor = wms->monitor_count - 1;
+    HWND button_hwnd = create_button(wms->h_instance, wms->main_hwnd, 0, wms->monitor_count - 1);
+    wms->desk_list[wms->monitor_count - 1].button_hwnd = button_hwnd;
+    wms->desk_list[wms->monitor_count - 1].is_tracking = TRUE;
+    SetWindowPos(button_hwnd, 0, lpmi.rcWork.left, 0, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+    ShowWindow(button_hwnd, SW_SHOW);
     if(is_param_in_xor(lpmi.dwFlags, MONITORINFOF_PRIMARY)) {
         printf("Found primary monitor (%lld)\n", wms->monitor_count);
         wms->monitors[wms->monitor_count - 1] = wms->monitors[0];
         wms->monitors[wms->monitor_count - 1].front_desk = wms->monitor_count - 1;
         wm.front_desk = 0;
-        SetWindowPos(wms->main_hwnd, 0, lpmi.rcWork.left, 0, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
-        wm.child_hwnd = wms->main_hwnd;
         wms->monitors[0] = wm;
     } else {
-        wm.child_hwnd = create_window(wms->h_instance, wms->main_hwnd, lpmi.rcWork.left);
-        ShowWindow(wm.child_hwnd, SW_SHOW);
         wms->monitors[wms->monitor_count - 1] = wm;
     }
     printf("Monitor %lld: W = %d, H = %d\n", wms->monitor_count, wm.w, wm.h);
@@ -314,11 +355,13 @@ BOOL CALLBACK enum_wnd(HWND hwnd, LPARAM lParam) {
     if(!is_actual_window(hwnd)) return TRUE;
     DWORD dxStyle = GetWindowLongPtrA(hwnd, GWL_STYLE);
     int is_resizable = is_resizable(dxStyle);
+    WIMAN_WINDOW new_wnd = { .is_unresizable = !is_resizable, .is_freeroam = !is_resizable, .hwnd = hwnd };
     if(!is_resizable) order_wnd_z(hwnd, HWND_TOPMOST);
+    if(!is_resizable) return !append_new_wnd(&wmds.wnd_list, &wmds.wnd_count, new_wnd);
     return !insert_new_wnd(
-        &wmds.wnd_list, &wmds.wnd_count,
-        (WIMAN_WINDOW){ .is_unresizable = !is_resizable, .is_freeroam = !is_resizable, .hwnd = hwnd },
-        (wmds.tiling_count += is_resizable) + (wmds.wnd_count - wmds.tiling_count) * !is_resizable - 1
+        &wmds.wnd_list, &wmds.wnd_count, new_wnd,
+        wmds.tiling_count++ - 1
+        // wmds.tiling_count + (wmds.wnd_count - wmds.tiling_count) * !is_resizable - 1
     );
     #undef wmds
     #undef wms
@@ -460,6 +503,58 @@ int init_curr_mode_reposition(WIMAN_DESKTOP_STATE *wmds, WIN_MONITOR *wm) {
     }
 }
 
+void reposition_buttons_for_monitor(WIMAN_STATE *wms, int monitor_for) {
+    int offset = 0;
+    for(int i = 0; i < DESK_COUNT; i++) {
+        ShowWindow(wms->desk_list[i].button_hwnd, SW_HIDE + (wms->desk_list[i].on_monitor != -1) * 5);
+        if(wms->desk_list[i].on_monitor != monitor_for) continue;
+        SetWindowPos(wms->desk_list[i].button_hwnd, 0, wms->monitors[monitor_for].pos.left + offset, 0, wms->monitors[monitor_for].pos.left + offset + DESK_TILE_SIZE.x, DESK_TILE_SIZE.y, SWP_NOZORDER);
+        offset += DESK_TILE_SIZE.x;
+        InvalidateRect(wms->desk_list[i].button_hwnd, 0, TRUE);
+    }
+    return;
+}
+
+int switch_desc_to(WIMAN_STATE *wms, int target) {
+    printf("Switching desktop to %d...\n", target + 1);
+    if(target == wms->curr_desk) return wms->curr_desk;
+    WIMAN_DESKTOP_STATE *curr_desk = &wms->desk_list[wms->curr_desk];
+    WIMAN_DESKTOP_STATE *target_desk = &wms->desk_list[target];
+    int is_desk_create = !target_desk->wnd_count && (target_desk->on_monitor == -1 || wms->monitors[target_desk->on_monitor].desk_count > 1);
+    if(is_desk_create) {
+        target_desk->on_monitor = curr_desk->on_monitor;
+        wms->monitors[curr_desk->on_monitor].desk_count++;
+    }
+    int is_same_monitor = curr_desk->on_monitor == target_desk->on_monitor;
+    int is_desk_destroy = !curr_desk->wnd_count && wms->monitors[curr_desk->on_monitor].desk_count > 1;
+    printf("IS DESK DESTROY %d\n", is_desk_destroy);
+    int on_monitor = curr_desk->on_monitor;
+    curr_desk->on_monitor = ((curr_desk->on_monitor + 1) * !is_desk_destroy) - 1;
+    wms->monitors[curr_desk->on_monitor].desk_count -= is_desk_destroy;
+    if(is_desk_create || is_desk_destroy) {
+        reposition_buttons_for_monitor(wms, on_monitor);
+    }
+    InvalidateRect(curr_desk->button_hwnd, 0, TRUE);
+    // reposition_buttons_for_monitor(wms, wms->curr_desk);
+    int i;
+    if(is_same_monitor || target_desk->on_monitor == -1) for(i = 0; i < curr_desk->wnd_count; i++) ShowWindow(curr_desk->wnd_list[i].hwnd, SW_HIDE);
+    wms->curr_desk = target;
+    curr_desk = &wms->desk_list[wms->curr_desk];
+    if(!is_same_monitor) {
+        InvalidateRect(curr_desk->button_hwnd, 0, TRUE);
+        // reposition_buttons_for_monitor(wms, wms->curr_desk);
+    }
+    if(curr_desk->changed || !is_same_monitor) {
+        init_curr_mode_reposition(curr_desk, &wms->monitors[curr_desk->on_monitor]);
+        curr_desk->changed = FALSE;
+    }
+    wms->monitors[target_desk->on_monitor].front_desk = target;
+    if(is_same_monitor) for(i = 0; i < curr_desk->wnd_count; i++) ShowWindow(curr_desk->wnd_list[i].hwnd, SW_SHOW);
+    printf("Switched to desktop %d\n", target + 1);
+}
+// TODO every button should be a separate window, and desktop should be in the window's userdata
+// TODO fetch hidden windows too
+// TODO gui interactivity
 // (scuffed fix has been added) TODO can't catch when a single window is closing
 // TODO .IDEA handle movesizestart event and assign window id to dragging_this and resizing_this flags in state
 // TODO somehow handle monitor changed event, ideally on cursor switch to it.
@@ -479,13 +574,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     wms.dpi = GetDpiForSystem();
     printf("DPI is %d\n", wms.dpi);
 
-    WNDCLASS wc = {};
-    wc.lpfnWndProc = WindowProc;
-    wc.hInstance = hInstance;
-    wc.lpszClassName = WINDOW_CLASSNAME;
-    RegisterClass(&wc);
-    wms.main_hwnd = create_window(&hInstance, NULL, 0);
-    ShowWindow(wms.main_hwnd, nShowCmd);
+    WNDCLASS main_wc = { .lpfnWndProc = MainWindowProc, .hInstance = hInstance, .lpszClassName = WINDOW_CLASSNAME };
+    RegisterClass(&main_wc);
+    wms.main_hwnd = CreateWindowExA(0, WINDOW_CLASSNAME, "mywindow", 0, 0, 0, 0, 0, NULL, NULL, hInstance, NULL);
+
+    WNDCLASS button_wc = { .lpfnWndProc = ButtonWindowProc, .hInstance = hInstance, .lpszClassName = BUTTON_CLASSNAME, .cbWndExtra = sizeof(int) };
+    RegisterClass(&button_wc);
 
     HHOOK keyboard_hook = SetWindowsHookExA(WH_KEYBOARD_LL, keyboard_proc, NULL, 0);
     HWINEVENTHOOK msg_hook = SetWinEventHook(EVENT_SYSTEM_MOVESIZESTART, EVENT_OBJECT_STATECHANGE, NULL, wnd_msg_proc, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
@@ -511,6 +605,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     printf("Fetched %lld monitors\n", wms.monitor_count);
     for(int i = wms.monitor_count; i < DESK_COUNT; i++) {
         wms.desk_list[i].on_monitor = -1;
+        wms.desk_list[i].is_tracking = TRUE;
+        wms.desk_list[i].button_hwnd = create_button(&hInstance, wms.main_hwnd, 0, i);
     }
 
     WM_SHELLHOOKMESSAGE = RegisterWindowMessage(TEXT("SHELLHOOK"));
@@ -618,36 +714,77 @@ LRESULT CALLBACK keyboard_proc(int nCode, WPARAM wParam, LPARAM lParam) {
                 init_curr_mode_reposition(&g_curr_desk, &wms.monitors[g_curr_desk.on_monitor]);
                 break;
             }
-            if(target == wms.curr_desk) break;
-            if(!target_desk->wnd_count && (target_desk->on_monitor == -1 || wms.monitors[target_desk->on_monitor].desk_count > 1)) {
-                target_desk->on_monitor = g_curr_desk.on_monitor;
-                wms.monitors[g_curr_desk.on_monitor].desk_count++;
-            }
-            int is_same_monitor = g_curr_desk.on_monitor == target_desk->on_monitor;
-            int is_desk_destroy = !g_curr_desk.wnd_count && wms.monitors[g_curr_desk.on_monitor].desk_count > 1;
-            wms.monitors[g_curr_desk.on_monitor].desk_count -= is_desk_destroy;
-            InvalidateRect(wms.monitors[g_curr_desk.on_monitor].child_hwnd, 0, TRUE);
-            g_curr_desk.on_monitor = ((g_curr_desk.on_monitor + 1) * !is_desk_destroy) - 1;
-            int i;
-            if(is_same_monitor || target_desk->on_monitor == -1) for(i = 0; i < g_curr_desk.wnd_count; i++) ShowWindow(g_curr_desk.wnd_list[i].hwnd, SW_HIDE);
-            wms.curr_desk = target;
-            if(!is_same_monitor) {
-                InvalidateRect(wms.monitors[g_curr_desk.on_monitor].child_hwnd, 0, TRUE);
-            }
-            if(g_curr_desk.changed || !is_same_monitor) {
-                init_curr_mode_reposition(&g_curr_desk, &wms.monitors[g_curr_desk.on_monitor]);
-                g_curr_desk.changed = FALSE;
-            }
-            wms.monitors[target_desk->on_monitor].front_desk = target;
-            if(is_same_monitor) for(i = 0; i < g_curr_desk.wnd_count; i++) ShowWindow(g_curr_desk.wnd_list[i].hwnd, SW_SHOW);
-            printf("Switched to desktop %d\n", target + 1);
+            switch_desc_to(&wms, target);
         }
         return 2;
     }
     return CallNextHookEx(NULL, nCode, wParam, lParam);
 }
 
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+LRESULT CALLBACK ButtonWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    switch (uMsg) {
+        case WM_LBUTTONDOWN: {
+            switch_desc_to(&wms, GetWindowLongPtrA(hwnd, -21));
+            break;
+        }
+        case WM_MOUSEHOVER: {
+            printf("Mouse Hover\n");
+            int desk = GetWindowLongPtrA(hwnd, -21);
+            wms.desk_list[desk].is_hovered = TRUE;
+            wms.desk_list[desk].is_tracking = FALSE;
+            InvalidateRect(hwnd, 0, TRUE);
+            return 0;
+        }
+        case WM_MOUSELEAVE: {
+            int desk = GetWindowLongPtrA(hwnd, -21);
+            printf("Mouse Leave %d\n", wms.desk_list[desk].is_hovered);
+            wms.desk_list[desk].is_hovered = FALSE;
+            wms.desk_list[desk].is_tracking = FALSE;
+            InvalidateRect(hwnd, 0, TRUE);
+            return 0;
+        }
+        case WM_MOUSEMOVE: {
+            int desk = GetWindowLongPtrA(hwnd, -21);
+            if(wms.desk_list[desk].is_tracking) break;
+            track_mouse_for(hwnd);
+            wms.desk_list[desk].is_tracking = TRUE;
+            return 0;
+        }
+        case WM_DESTROY:
+            PostQuitMessage(0);
+            break;
+        case WM_CLOSE:
+            break;
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hwnd, &ps);
+            int desk = GetWindowLongPtrA(hwnd, -21);
+            WIN_MONITOR *target_monitor = &wms.monitors[wms.desk_list[desk].on_monitor];
+            int is_desk_last = desk >= target_monitor->desk_count - 1;
+            int is_active = desk == wms.curr_desk;
+            int is_hovered = wms.desk_list[desk].is_hovered && !is_active;
+            char buffer[2];
+            RECT pos_r = { ps.rcPaint.left, 0, ps.rcPaint.left + DESK_TILE_SIZE.x, 0 + DESK_TILE_SIZE.y };
+            RECT inner_tile = { pos_r.left + TILE_OFFSET, pos_r.top + TILE_OFFSET, pos_r.right - TILE_OFFSET, pos_r.bottom - TILE_OFFSET };
+            FillRect(hdc, &pos_r, (HBRUSH)(CreateSolidBrush(BG_COLOR * !is_hovered + DESK_BG_COLORS[TRUE] * is_hovered)));
+            FillRect(hdc, &inner_tile, (HBRUSH)(CreateSolidBrush(DESK_BG_COLORS[is_active])));
+            FrameRect(hdc, &pos_r, (HBRUSH)(CreateSolidBrush(DESK_COLORS[is_active] * !is_hovered + DESK_BG_COLORS[TRUE] * is_hovered)));
+            sprintf(buffer, "%d", desk + 1);
+            SetBkMode(hdc, TRANSPARENT);
+            // SetTextColor(hdc, ~DESK_BG_COLORS[is_active] - 0xff000000);
+            DrawTextA(hdc, buffer, -1, &pos_r, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            if(wms.desk_list[desk].wnd_count > 0) {
+                sprintf(buffer, "%lld", wms.desk_list[desk].wnd_count);
+                SetBkMode(hdc, OPAQUE);
+                DrawTextA(hdc, buffer, -1, &inner_tile, DT_RIGHT | DT_BOTTOM | DT_SINGLELINE);
+            }
+            EndPaint(hwnd, &ps);
+        }
+    }
+    return DefWindowProc(hwnd, uMsg, wParam, lParam);
+}
+
+LRESULT CALLBACK MainWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     if(uMsg == WM_SHELLHOOKMESSAGE) {
         #define chwnd (HWND)lParam
@@ -659,9 +796,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 long curr_wnd_style = GetWindowLongPtrA(get_curr_hwnd(g_curr_desk), GWL_STYLE);
                 if(!is_param_in_xor(curr_wnd_style, WS_VISIBLE) || (is_param_in_xor(curr_wnd_style, WS_MINIMIZE) && !g_curr_desk.wnd_list[g_curr_desk.curr_wnd].is_freeroam)) {
                     printf("Assuming that window %d is closing...\n", g_curr_desk.curr_wnd);
-                    if(!g_curr_desk.wnd_list[g_curr_desk.curr_wnd].is_freeroam) {
-                        g_curr_desk.tiling_count--;
-                    }
+                    g_curr_desk.tiling_count -= !g_curr_desk.wnd_list[g_curr_desk.curr_wnd].is_freeroam;
                     remove_wnd_by_idx(&g_curr_desk.wnd_list, &g_curr_desk.wnd_count, g_curr_desk.curr_wnd);
                     init_curr_mode_reposition(&g_curr_desk, &wms.monitors[g_curr_desk.on_monitor]);
                 }
@@ -721,49 +856,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             break;
         case WM_CLOSE:
             free(g_curr_desk.wnd_list);
-            break;
-        case WM_PAINT: {
-                printf("Received WM_PAINT message\n");
-                PAINTSTRUCT ps;
-                HDC hdc;
-                int for_monitor;
-                for(int i = 0; i < wms.monitor_count; i++) {
-                    if(wms.monitors[i].child_hwnd == hwnd) {
-                        for_monitor = i;
-                        hdc = BeginPaint(wms.monitors[i].child_hwnd, &ps);
-                        break;
-                    }
-                }
-                if(hdc == NULL) break;
-                printf("Repainting GUI for monitor %d\n", for_monitor + 1);
-                char buffer[2];
-                SetWindowPos(hwnd, 0, ps.rcPaint.left, 0, ps.rcPaint.left + wms.monitors[for_monitor].desk_count * DESK_TILE_SIZE.x, DESK_TILE_SIZE.y, SWP_NOMOVE | SWP_NOZORDER);
-                // FillRect(hdc, &ps.rcPaint, (HBRUSH)(COLOR_WINDOW));
-                RECT pos_r = { ps.rcPaint.left, 0, ps.rcPaint.left + DESK_TILE_SIZE.x, 0 + DESK_TILE_SIZE.y };
-                RECT inner_tile = { pos_r.left + TILE_OFFSET, pos_r.top + TILE_OFFSET, pos_r.right - TILE_OFFSET, pos_r.bottom - TILE_OFFSET };
-                for(int i = 0; i < DESK_COUNT; i++) {
-                    if(!wms.desk_list[i].wnd_count && wms.monitors[for_monitor].front_desk != i || wms.desk_list[i].on_monitor != for_monitor) {
-                        continue;
-                    }
-                    FillRect(hdc, &pos_r, (HBRUSH)(CreateSolidBrush(BG_COLOR)));
-                    FillRect(hdc, &inner_tile, (HBRUSH)(CreateSolidBrush(DESK_BG_COLORS[i == wms.curr_desk])));
-                    FrameRect(hdc, &pos_r, (HBRUSH)(CreateSolidBrush(DESK_COLORS[i == wms.curr_desk])));
-                    sprintf(buffer, "%d", i + 1);
-                    SetBkMode(hdc, TRANSPARENT);
-                    // SetTextColor(hdc, ~DESK_BG_COLORS[i == wms.curr_desk] - 0xff000000);
-                    DrawTextA(hdc, buffer, -1, &pos_r, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-                    if(wms.desk_list[i].wnd_count > 0) {
-                        sprintf(buffer, "%lld", wms.desk_list[i].wnd_count);
-                        SetBkMode(hdc, OPAQUE);
-                        DrawTextA(hdc, buffer, -1, &inner_tile, DT_RIGHT | DT_BOTTOM | DT_SINGLELINE);
-                    }
-                    pos_r.left += DESK_TILE_SIZE.x;
-                    pos_r.right += DESK_TILE_SIZE.x;
-                    inner_tile.left += DESK_TILE_SIZE.x;
-                    inner_tile.right += DESK_TILE_SIZE.x;
-                }
-                EndPaint(hwnd, &ps);
-            }
             break;
     }
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
