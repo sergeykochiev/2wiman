@@ -625,9 +625,9 @@ int send_wnd_to_desk(WIMAN_STATE *wms, int wnd, int from, int desk) {
     return 0;
 }
 
+// TODO find a way to detect when a single window on a desktop is closing or minimizing (previous solution expectidly didn't work fully)
 // TODO add plus button on every monitor
 // TODO fetch hidden windows too
-// (scuffed fix has been added) TODO can't catch when a single window is closing
 // TODO .IDEA handle movesizestart event and assign window id to dragging_this and resizing_this flags in state
 // TODO somehow handle monitor changed event, ideally on cursor switch to it.
 // TODO FIX sometimes app crashes on window open
@@ -958,10 +958,19 @@ void wnd_msg_proc(
 ) {
     if(!is_actual_window(hwnd)) return;
     int wnd_id = get_wnd_id_by_hwnd(&g_curr_desk, hwnd);
+    // printf("MESSAGE for window %d: %lu\n", wnd_id, event);
     if(wnd_id == -1) return;
     switch(event) {
         case EVENT_SYSTEM_MOVESIZESTART: {
             printf("Movesize start\n");
+            break;
+        }
+        // statechange works for indentifying the closing of a window somehow
+        case EVENT_OBJECT_STATECHANGE:
+        case EVENT_SYSTEM_MINIMIZESTART: {
+            g_curr_desk.tiling_count -= !g_curr_desk.wnd_list[wnd_id].is_freeroam;
+            remove_wnd_by_idx(&g_curr_desk.wnd_list, &g_curr_desk.wnd_count, wnd_id);
+            init_curr_mode_reposition(&g_curr_desk, &wms.monitors[g_curr_desk.on_monitor]);
             break;
         }
         case EVENT_SYSTEM_MOVESIZEEND:
