@@ -1,9 +1,12 @@
 #include "windows.h"
 #include <minwindef.h>
+#include <processthreadsapi.h>
 #include <vadefs.h>
+#include <winbase.h>
 #include <windef.h>
 #include "C:\Users\dupa\gcc\x86_64-w64-mingw32\include\wingdi.h"
 #include <wingdi.h>
+#include <winnt.h>
 #include <winuser.h>
 #include <commctrl.h>
 #include <windowsx.h>
@@ -13,7 +16,11 @@
 #include <string.h>
 #include <stdarg.h>
 #include <time.h>
+#include <winternl.h>
+#include <winnt.h>
 
+#define WINDOW_TITLE_BUFFER_SIZE 64
+char WINDOW_TITLE_BUFFER[WINDOW_TITLE_BUFFER_SIZE];
 static const COLORREF BG_COLOR = 0x00444444;
 static const COLORREF DESK_COLOR = 0x00878787;
 static const COLORREF DESK_BG_COLOR = 0x006B979E;
@@ -302,10 +309,48 @@ int get_monitor_id_by_cursor(WIMAN_STATE *wms, POINT curr) {
     return -1;
 }
 
+// "heavily inspired" by https://stackoverflow.com/a/22949726
+int is_window_thread_suspended(HWND hwnd) {
+    DWORD pid;
+    DWORD tid = GetWindowThreadProcessId(hwnd, &pid);
+    if(!tid) return -1;
+    ULONG needed = 0;
+    BYTE *d = malloc(0);
+    NTSTATUS s32_Status;
+    do {
+        int ds = needed + 1;
+        needed = 0;
+        BYTE *nd = realloc(d, ds);
+        if(nd == NULL) {
+            free(d);
+            return -1;
+        }
+        d = nd;
+        s32_Status = NtQuerySystemInformation(SystemProcessInformation, d, ds, &needed);
+    } while(s32_Status == 0xC0000004);
+    SYSTEM_PROCESS_INFORMATION *spi = (SYSTEM_PROCESS_INFORMATION*)d;
+    while(spi->NextEntryOffset) {
+        if((DWORD)(DWORD_PTR)spi->UniqueProcessId == pid) break;
+        spi = (SYSTEM_PROCESS_INFORMATION*)((BYTE*)spi + spi->NextEntryOffset);
+    }
+    if((DWORD)(DWORD_PTR)spi->UniqueProcessId != pid) {
+        free(d);
+        return -1;
+    }
+    SYSTEM_THREAD_INFORMATION *sti = (SYSTEM_THREAD_INFORMATION*)((BYTE*)spi + sizeof(SYSTEM_PROCESS_INFORMATION));
+    for(int i = 0; i < spi->NumberOfThreads; i++) {
+        if(sti->ClientId.UniqueThread == (HANDLE)(DWORD_PTR)tid) return sti->ThreadState == 5 && sti->WaitReason == 13;
+        // sti = (SYSTEM_THREAD_INFORMATION*)((BYTE*)(sti + sizeof(SYSTEM_THREAD_INFORMATION)));
+        sti++;
+    }
+    free(d);
+    return -1;
+}
+
 int is_actual_window(HWND hwnd) {
     long dxExStyle = GetWindowLongA(hwnd, GWL_EXSTYLE);
-    long dsStyle = GetWindowLongA(hwnd, GWL_STYLE);
-    return (!is_param_in_xor(dxExStyle, WS_EX_NOREDIRECTIONBITMAP) || is_param_in_xor(dsStyle, WS_CAPTION)) && IsWindowVisible(hwnd) && GetWindowTextLengthA(hwnd) && !is_toolwindow(dxExStyle);
+    long dxStyle = GetWindowLongA(hwnd, GWL_STYLE);
+    return (!is_param_in_xor(dxExStyle, WS_EX_NOREDIRECTIONBITMAP) || is_param_in_xor(dxStyle, WS_CAPTION)) && IsWindowVisible(hwnd) && GetWindowTextLengthA(hwnd) && !is_toolwindow(dxExStyle);
 }
 
 HWND create_window(HINSTANCE *hInstance, HWND hwnd_parent, int offset_left) {
@@ -378,6 +423,9 @@ BOOL CALLBACK enum_wnd(HWND hwnd, LPARAM lParam) {
     #define wms ((WIMAN_STATE*)lParam)
     #define wmds wms->desk_list[0]
     if(!is_actual_window(hwnd)) return TRUE;
+    if(is_window_thread_suspended(hwnd)) return TRUE;
+    GetWindowTextA(hwnd, (char*)WINDOW_TITLE_BUFFER, WINDOW_TITLE_BUFFER_SIZE);
+    log_to_file(wms, "Window \"%s\" found\n", WINDOW_TITLE_BUFFER);
     DWORD dxStyle = GetWindowLongPtrA(hwnd, GWL_STYLE);
     int is_resizable = is_resizable(dxStyle);
     WIMAN_WINDOW new_wnd = { .is_unresizable = !is_resizable, .is_freeroam = !is_resizable, .hwnd = hwnd };
