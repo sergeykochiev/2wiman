@@ -43,7 +43,7 @@ static const char BUTTON_CLASSNAME[] = "2wiman-control";
 #define order_wnd_z(hwnd, pos) SetWindowPos(hwnd, pos, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
 #define is_param_in_xor(xor, param) ((xor | param) == xor)
 #define is_wh_equal_rect(a, b) (((a.bottom - a.top) == (b.bottom - b.top)) && ((a.right - a.left) == (b.right - b.left)))
-#define is_pressed(key) HIWORD(GetKeyState(key))
+#define is_pressed(key) (HIWORD(GetKeyState(key)))
 #define is_toolwindow(dxExStyle) is_param_in_xor(dxExStyle, WS_EX_TOOLWINDOW)
 #define is_resizable(dxStyle) is_param_in_xor(dxStyle, WS_THICKFRAME)
 #define get_curr_hwnd(wmds) (wmds).wnd_list[(wmds).curr_wnd].hwnd
@@ -791,6 +791,68 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     return 0;
 }
 
+int handle_keydown(int keyCode, int shift, int ctrl) {
+    int prev_act_idx = g_curr_desk.curr_wnd;
+    switch (keyCode)
+        {
+        case VK_LEFT:
+        case VK_UP:
+            if(g_curr_desk.curr_wnd <= 0 && g_curr_desk.tiling_count >= 0) {
+                if(!wiman_config.stack_mode_infinite_scroll) break;
+                g_curr_desk.curr_wnd = g_curr_desk.tiling_count;
+            }
+            g_curr_desk.curr_wnd--;
+            goto switch_wnd;
+        case VK_RIGHT:
+        case VK_DOWN:
+            if(g_curr_desk.curr_wnd >= g_curr_desk.tiling_count - 1) {
+                if(!wiman_config.stack_mode_infinite_scroll) break;
+                g_curr_desk.curr_wnd = -1;
+            }
+            g_curr_desk.curr_wnd++;
+            switch_wnd:
+            WINDOWPLACEMENT wp = {
+                .showCmd = SC_RESTORE,
+                .length = sizeof(WINDOWPLACEMENT)
+            };
+            RECT wr;
+            if(shift && g_curr_desk.mode != WMM_STACK) {
+                switch_hwnds_pos(&g_curr_desk.wnd_list, prev_act_idx, g_curr_desk.curr_wnd);
+                return 2 - focus_act_window(&g_curr_desk, g_curr_desk.curr_wnd);
+            }
+            return 2 - focus_act_window(&g_curr_desk, prev_act_idx);
+        case 'W':
+            if(g_curr_desk.mode == WMM_STACK) break;
+            g_curr_desk.mode = WMM_STACK;
+            return 2 - init_curr_mode_reposition(&g_curr_desk, &wms.monitors[g_curr_desk.on_monitor]);
+        case 'E':
+            g_curr_desk.mode = (g_curr_desk.mode == WMM_TILING_V) + 1;
+            return 2 - init_curr_mode_reposition(&g_curr_desk, &wms.monitors[g_curr_desk.on_monitor]);
+        case VK_SPACE:
+            if(toggle_wnd_freeroam(&g_curr_desk, g_curr_desk.curr_wnd, &wms.monitors[g_curr_desk.on_monitor]) == 2) break;
+            init_curr_mode_reposition(&g_curr_desk, &wms.monitors[g_curr_desk.on_monitor]);
+            break;
+        case 'D':
+            print_debug_info(&wms, shift);
+            return 2;
+        case 49 ... 57:
+            int target = keyCode - 49;
+            WIMAN_DESKTOP_STATE *target_desk = &wms.desk_list[target];
+            if(shift) return 2 - send_wnd_to_desk(&wms, g_curr_desk.curr_wnd, wms.curr_desk, target);
+            if(ctrl) return 2 - send_desk_to_monitor(&wms, wms.curr_desk, target);
+            return 2 - switch_desc_to(&wms, target);
+        // case 'R':
+        //     free(g_curr_desk.wnd_list);
+        //     g_curr_desk.wnd_list = calloc(0, sizeof(WIMAN_WINDOW));
+        //     // g_curr_desk.wnd_count = 0;
+        //     EnumWindows(enum_wnd, (LPARAM)&wms);
+        //     g_curr_desk.tiling_count = g_curr_desk.wnd_count;
+        //     init_curr_mode_reposition(&g_curr_desk, &wms.monitors[g_curr_desk.on_monitor]);
+        //     break;
+    }
+    return 2;
+}
+
 LRESULT CALLBACK MainWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     if(uMsg == WM_SHELLHOOKMESSAGE) {
@@ -874,6 +936,9 @@ LRESULT CALLBACK MainWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             }
             return 0;
         }
+        case WM_KEYDOWN: {
+            return handle_keydown((int)wParam, HIWORD(lParam), LOWORD(lParam));
+        }
         case WM_DESTROY:
             PostQuitMessage(0);
             break;
@@ -896,68 +961,11 @@ LRESULT CALLBACK MainWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
 }
 
 LRESULT CALLBACK keyboard_proc(int nCode, WPARAM wParam, LPARAM lParam) {
-    printf("Keyboard DPIA: %d\n", dpi_awareness());
     PKBDLLHOOKSTRUCT key = (PKBDLLHOOKSTRUCT)lParam;
-    int prev_act_idx = g_curr_desk.curr_wnd;
     if (wParam == WM_KEYDOWN && nCode == HC_ACTION && is_pressed(MODIFIER_KEY))
     {
-        switch (key->vkCode)
-        {
-        case VK_LEFT:
-        case VK_UP:
-            if(g_curr_desk.curr_wnd <= 0 && g_curr_desk.tiling_count >= 0) {
-                if(!wiman_config.stack_mode_infinite_scroll) break;
-                g_curr_desk.curr_wnd = g_curr_desk.tiling_count;
-            }
-            g_curr_desk.curr_wnd--;
-            goto switch_wnd;
-        case VK_RIGHT:
-        case VK_DOWN:
-            if(g_curr_desk.curr_wnd >= g_curr_desk.tiling_count - 1) {
-                if(!wiman_config.stack_mode_infinite_scroll) break;
-                g_curr_desk.curr_wnd = -1;
-            }
-            g_curr_desk.curr_wnd++;
-            switch_wnd:
-            WINDOWPLACEMENT wp = {
-                .showCmd = SC_RESTORE,
-                .length = sizeof(WINDOWPLACEMENT)
-            };
-            RECT wr;
-            if(is_pressed(VK_SHIFT) && g_curr_desk.mode != WMM_STACK) {
-                switch_hwnds_pos(&g_curr_desk.wnd_list, prev_act_idx, g_curr_desk.curr_wnd);
-                return 2 - focus_act_window(&g_curr_desk, g_curr_desk.curr_wnd);
-            }
-            return 2 - focus_act_window(&g_curr_desk, prev_act_idx);
-        case 'W':
-            if(g_curr_desk.mode == WMM_STACK) break;
-            g_curr_desk.mode = WMM_STACK;
-            return 2 - init_curr_mode_reposition(&g_curr_desk, &wms.monitors[g_curr_desk.on_monitor]);
-        case 'E':
-            g_curr_desk.mode = (g_curr_desk.mode == WMM_TILING_V) + 1;
-            return 2 - init_curr_mode_reposition(&g_curr_desk, &wms.monitors[g_curr_desk.on_monitor]);
-        case VK_SPACE:
-            if(toggle_wnd_freeroam(&g_curr_desk, g_curr_desk.curr_wnd, &wms.monitors[g_curr_desk.on_monitor]) == 2) break;
-            init_curr_mode_reposition(&g_curr_desk, &wms.monitors[g_curr_desk.on_monitor]);
-            break;
-        case 'D':
-            print_debug_info(&wms, is_pressed(VK_SHIFT));
-            return 2;
-        case 49 ... 57:
-            int target = key->vkCode - 49;
-            WIMAN_DESKTOP_STATE *target_desk = &wms.desk_list[target];
-            if(is_pressed(VK_SHIFT)) return 2 - send_wnd_to_desk(&wms, g_curr_desk.curr_wnd, wms.curr_desk, target);
-            if(is_pressed(VK_CONTROL)) return 2 - send_desk_to_monitor(&wms, wms.curr_desk, target);
-            return 2 - switch_desc_to(&wms, target);
-        }
-        // case 'R':
-        //     free(g_curr_desk.wnd_list);
-        //     g_curr_desk.wnd_list = calloc(0, sizeof(WIMAN_WINDOW));
-        //     // g_curr_desk.wnd_count = 0;
-        //     EnumWindows(enum_wnd, (LPARAM)&wms);
-        //     g_curr_desk.tiling_count = g_curr_desk.wnd_count;
-        //     init_curr_mode_reposition(&g_curr_desk, &wms.monitors[g_curr_desk.on_monitor]);
-        //     break;
+        PostMessageA(wms.main_hwnd, WM_KEYDOWN, key->vkCode, is_pressed(VK_SHIFT) << 16 | is_pressed(VK_CONTROL));
+        return 2;
     }
     return CallNextHookEx(NULL, nCode, wParam, lParam);
 }
