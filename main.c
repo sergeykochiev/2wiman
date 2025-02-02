@@ -31,7 +31,7 @@ static const COLORREF ACTIVE_DESK_COLOR = 0x00BC750B;
 static const COLORREF ACTIVE_DESK_BG_COLOR = 0x00FFDA0A;
 static const COLORREF DESK_COLORS[2] = { [FALSE] = DESK_COLOR, [TRUE] = ACTIVE_DESK_COLOR };
 static const COLORREF DESK_BG_COLORS[2] = { [FALSE] = DESK_BG_COLOR, [TRUE] = ACTIVE_DESK_BG_COLOR };
-static const POINT DESK_TILE_SIZE = { 64, 64 };
+static const POINT DESK_TILE_SIZE = { 32, 32 };
 static const char WINDOW_CLASSNAME[] = "2wiman";
 static const char BUTTON_CLASSNAME[] = "2wiman-control";
 #define WM_NOTIFYICON WM_APP + 1
@@ -39,7 +39,7 @@ static const char BUTTON_CLASSNAME[] = "2wiman-control";
 #define TILE_OFFSET 3
 #define LOGFILE_BUFFER_SIZE 128
 #define MODIFIER_KEY VK_CAPITAL
-#define scale_to_dpi(thing, dpi) (thing) * DEFAULT_DPI / dpi
+#define scale_to_dpi(thing, dpi) ((thing) * dpi / DEFAULT_DPI)
 #define order_wnd_z(hwnd, pos) SetWindowPos(hwnd, pos, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
 #define is_param_in_xor(xor, param) ((xor | param) == xor)
 #define is_wh_equal_rect(a, b) (((a.bottom - a.top) == (b.bottom - b.top)) && ((a.right - a.left) == (b.right - b.left)))
@@ -384,14 +384,14 @@ HWND create_window(HINSTANCE *hInstance, HWND hwnd_parent, int offset_left) {
     return hwnd;
 }
 
-HWND create_button(HINSTANCE *hInstance, HWND hwnd_parent, int offset_left, int desk) {
+HWND create_button(HINSTANCE *hInstance, HWND hwnd_parent, int desk) {
     if(hwnd_parent == NULL) return NULL;
     HWND hwnd = CreateWindowExA(
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         BUTTON_CLASSNAME,
         "2wmctrl",
         0,
-        offset_left, 0, DESK_TILE_SIZE.x, DESK_TILE_SIZE.y,
+        0, 0, 0, 0,
         hwnd_parent,
         NULL,
         *hInstance,
@@ -412,17 +412,18 @@ BOOL enum_monitors(HMONITOR hmonitor, HDC hdc, LPRECT lpRect, LPARAM lParam) {
     MONITORINFO lpmi = { .cbSize = sizeof(MONITORINFO) };
     GetMonitorInfoA(hmonitor, &lpmi);
     WIN_MONITOR wm = { .hmonitor = hmonitor, .front_desk = wms->monitor_count - 1, .desk_count = 1 };
-    // if(!GetDpiForMonitor(hmonitor, MDT_EFFECTIVE_DPI, &wm.dpi, &wm.dpi)) wm.dpi = DEFAULT_DPI;
-    wm.dpi = DEFAULT_DPI;
-    wm.h = scale_to_dpi(lpmi.rcWork.bottom - lpmi.rcWork.top, wm.dpi);
-    wm.w = scale_to_dpi(lpmi.rcWork.right - lpmi.rcWork.left, wm.dpi);
+    if(GetDpiForMonitor(hmonitor, MDT_EFFECTIVE_DPI, &wm.dpi, &wm.dpi) != S_OK) wm.dpi = DEFAULT_DPI;
+    wm.h = lpmi.rcWork.bottom - lpmi.rcWork.top;
+    wm.w = lpmi.rcWork.right - lpmi.rcWork.left;
     wm.pos = lpmi.rcWork;
-    scale_rect_to_dpi(&wm.pos, wm.dpi);
     wms->desk_list[wms->monitor_count - 1].on_monitor = wms->monitor_count - 1;
-    HWND button_hwnd = create_button(wms->h_instance, wms->main_hwnd, 0, wms->monitor_count - 1);
+    HWND button_hwnd = create_button(wms->h_instance, wms->main_hwnd, wms->monitor_count - 1);
     wms->desk_list[wms->monitor_count - 1].button.hwnd = button_hwnd;
     wms->desk_list[wms->monitor_count - 1].button.is_tracking = TRUE;
-    SetWindowPos(button_hwnd, 0, lpmi.rcWork.left, 0, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+    int new_size = scale_to_dpi(DESK_TILE_SIZE.x, wm.dpi);
+    SetWindowPos(button_hwnd, 0, lpmi.rcWork.left, lpmi.rcWork.top, lpmi.rcWork.left + scale_to_dpi(DESK_TILE_SIZE.x, wm.dpi), lpmi.rcWork.top + scale_to_dpi(DESK_TILE_SIZE.y, wm.dpi), SWP_NOZORDER);
+    wms->desk_list[wms->monitor_count - 1].button.last_set_left_top = (POINT){ .x = lpmi.rcWork.left, .y = lpmi.rcWork.top };
+    // SetWindowPos(button_hwnd, 0, lpmi.rcWork.left, 0, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
     ShowWindow(button_hwnd, SW_SHOW);
     if(is_param_in_xor(lpmi.dwFlags, MONITORINFOF_PRIMARY)) {
         log_to_file(wms, "Found primary monitor (%lld)\n", wms->monitor_count);
@@ -433,7 +434,7 @@ BOOL enum_monitors(HMONITOR hmonitor, HDC hdc, LPRECT lpRect, LPARAM lParam) {
     } else {
         wms->monitors[wms->monitor_count - 1] = wm;
     }
-    log_to_file(wms, "Found monitor %lld: W = %d, H = %d\n", wms->monitor_count, wm.w, wm.h);
+    log_to_file(wms, "Found monitor %lld: W = %d, H = %d, DPI = %d\n", wms->monitor_count, wm.w, wm.h, wm.dpi);
     #undef wms
 }
 
@@ -598,23 +599,25 @@ int init_curr_mode_reposition(WIMAN_DESKTOP_STATE *wmds, WIN_MONITOR *wm) {
 void reposition_buttons(WIMAN_STATE *wms) {
     log_to_file(wms, "Buttons repositioning\n");
     long *offsets = calloc(wms->monitor_count, sizeof(int));
+    int monitor, offset;
     for(int i = 0; i < DESK_COUNT; i++) {
-        ShowWindow(wms->desk_list[i].button.hwnd, SW_HIDE + (wms->desk_list[i].on_monitor != -1) * 5);
-        if(wms->desk_list[i].on_monitor == -1) {
+        monitor = wms->desk_list[i].on_monitor;
+        ShowWindow(wms->desk_list[i].button.hwnd, SW_HIDE + (monitor != -1) * 5);
+        if(monitor == -1) {
             log_to_file(wms, "Buttons: Skipping and hiding desktop button %d (it isn't active or is current)\n", i);
             continue;
         }
-        int offset = offsets[wms->desk_list[i].on_monitor];
-        if(offset == wms->desk_list[i].button.last_set_left_top.x && wms->monitors[wms->desk_list[i].on_monitor].pos.top == wms->desk_list[i].button.last_set_left_top.y) {
+        offset = offsets[monitor];
+        if(offset == wms->desk_list[i].button.last_set_left_top.x && wms->monitors[monitor].pos.top == wms->desk_list[i].button.last_set_left_top.y) {
             log_to_file(wms, "Buttons: Skipping desktop button %d (position didn't change)\n", i);
-            offsets[wms->desk_list[i].on_monitor] += DESK_TILE_SIZE.x;
+            offsets[monitor] += DESK_TILE_SIZE.x;
             continue;
         }
         log_to_file(wms, "Buttons: Setting desktop button %d position\n", i);
-        SetWindowPos(wms->desk_list[i].button.hwnd, 0, offset, wms->monitors[wms->desk_list[i].on_monitor].pos.top, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
+        SetWindowPos(wms->desk_list[i].button.hwnd, 0, wms->monitors[monitor].pos.left + scale_to_dpi(offset, wms->monitors[monitor].dpi), wms->monitors[monitor].pos.top, wms->monitors[monitor].pos.left + scale_to_dpi(offset + DESK_TILE_SIZE.x, wms->monitors[monitor].dpi), wms->monitors[monitor].pos.top + scale_to_dpi(DESK_TILE_SIZE.y, wms->monitors[monitor].dpi), SWP_NOZORDER);
         wms->desk_list[i].button.last_set_left_top.x = offset;
-        wms->desk_list[i].button.last_set_left_top.y = wms->monitors[wms->desk_list[i].on_monitor].pos.top;
-        offsets[wms->desk_list[i].on_monitor] += DESK_TILE_SIZE.x;
+        wms->desk_list[i].button.last_set_left_top.y = wms->monitors[monitor].pos.top;
+        offsets[monitor] += DESK_TILE_SIZE.x;
         // InvalidateRect(wms->desk_list[i].button.hwnd, 0, TRUE);
     }
     free(offsets);
@@ -712,7 +715,6 @@ int send_wnd_to_desk(WIMAN_STATE *wms, int wnd, int from, int desk) {
     return 0;
 }
 
-// TODO dpi issues
 // TODO FIX sending desktops to different monitors doesn't work properly
 // (fixed, the solution is questionable) TODO find a way to detect when a single window on a desktop is closing or minimizing (previous solution expectidly didn't work fully)
 // TODO add plus button on every monitor
@@ -733,8 +735,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     // MonitorFromWindow(GetDesktopWindow(), MONITOR_DEFAULTTOPRIMARY)
     wms.h_instance = &hInstance;
-    wms.dpi = GetDpiForSystem();
-    log_to_file(&wms, "System DPI is %d\n", wms.dpi);
+    // wms.dpi = GetDpiForSystem();
+    // log_to_file(&wms, "System DPI is %d\n", wms.dpi);
 
     log_to_file(&wms, "Creating main window\n");
     WNDCLASS main_wc = { .lpfnWndProc = MainWindowProc, .hInstance = hInstance, .lpszClassName = WINDOW_CLASSNAME };
@@ -778,7 +780,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     for(int i = wms.monitor_count; i < DESK_COUNT; i++) {
         wms.desk_list[i].on_monitor = -1;
         wms.desk_list[i].button.is_tracking = TRUE;
-        wms.desk_list[i].button.hwnd = create_button(&hInstance, wms.main_hwnd, 0, i);
+        wms.desk_list[i].button.hwnd = create_button(&hInstance, wms.main_hwnd, i);
     }
 
     init_curr_mode_reposition(&wms.desk_list[wms.curr_desk], &wms.monitors[wms.desk_list[wms.curr_desk].on_monitor]);
@@ -1040,8 +1042,9 @@ LRESULT CALLBACK ButtonWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lP
             int is_active = desk == wms.curr_desk;
             int is_hovered = wms.desk_list[desk].button.is_hovered && !is_active;
             char buffer[2];
-            RECT pos_r = { ps.rcPaint.left, 0, ps.rcPaint.left + DESK_TILE_SIZE.x, 0 + DESK_TILE_SIZE.y };
-            RECT inner_tile = { pos_r.left + TILE_OFFSET, pos_r.top + TILE_OFFSET, pos_r.right - TILE_OFFSET, pos_r.bottom - TILE_OFFSET };
+            RECT pos_r = { ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.left + scale_to_dpi(DESK_TILE_SIZE.x, target_monitor->dpi), ps.rcPaint.top + scale_to_dpi(DESK_TILE_SIZE.y, target_monitor->dpi) };
+            int scaled_tile_offset = scale_to_dpi(TILE_OFFSET, target_monitor->dpi);
+            RECT inner_tile = { pos_r.left + scaled_tile_offset, pos_r.top + scaled_tile_offset, pos_r.right - scaled_tile_offset, pos_r.bottom - scaled_tile_offset };
             FillRect(hdc, &pos_r, (HBRUSH)(CreateSolidBrush(BG_COLOR * !is_hovered + DESK_BG_COLORS[TRUE] * is_hovered)));
             FillRect(hdc, &inner_tile, (HBRUSH)(CreateSolidBrush(DESK_BG_COLORS[is_active])));
             FrameRect(hdc, &pos_r, (HBRUSH)(CreateSolidBrush(DESK_COLORS[is_active] * !is_hovered + DESK_BG_COLORS[TRUE] * is_hovered)));
@@ -1069,7 +1072,6 @@ void winevent_proc(
   DWORD idEventThread,
   DWORD dwmsEventTime
 ) {
-    printf("WinEvent DPIA: %d\n", dpi_awareness());
     if(!is_actual_window(hwnd)) return;
     int wnd_id = get_wnd_id_by_hwnd(&g_curr_desk, hwnd);
     // printf("MESSAGE for window %d: %lu\n", wnd_id, event);
