@@ -40,6 +40,7 @@ static const char BUTTON_CLASSNAME[] = "2wiman-control";
 #define LOGFILE_BUFFER_SIZE 128
 #define MODIFIER_KEY VK_CAPITAL
 #define scale_to_dpi(thing, dpi) ((thing) * dpi / DEFAULT_DPI)
+#define apply_dpi_factor(thing, factor) ((thing) * (factor * wiman_config.is_scale_with_dpi + 1 * !wiman_config.is_scale_with_dpi))
 #define order_wnd_z(hwnd, pos) SetWindowPos(hwnd, pos, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
 #define is_param_in_xor(xor, param) ((xor | param) == xor)
 #define is_wh_equal_rect(a, b) (((a.bottom - a.top) == (b.bottom - b.top)) && ((a.right - a.left) == (b.right - b.left)))
@@ -58,8 +59,10 @@ static const char BUTTON_CLASSNAME[] = "2wiman-control";
 #define dpi_awareness() GetAwarenessFromDpiAwarenessContext(GetThreadDpiAwarenessContext())
 
 typedef struct {
-    int stack_mode_infinite_scroll;
+    int is_stack_mode_infinite_scroll;
     int default_mode;
+    POINT button_size;
+    BOOL is_scale_with_dpi;
 } WIMAN_CONFIG;
 
 typedef struct {
@@ -79,6 +82,7 @@ typedef struct {
     HWND child_hwnd;
     size_t desk_count;
     unsigned int dpi;
+    float dpi_factor;
 } WIN_MONITOR;
 
 typedef enum {
@@ -122,7 +126,9 @@ typedef struct {
 WIMAN_STATE wms = {};
 
 WIMAN_CONFIG wiman_config = {
-    .stack_mode_infinite_scroll = FALSE,
+    .is_stack_mode_infinite_scroll = FALSE,
+    .is_scale_with_dpi = TRUE,
+    .button_size = DESK_TILE_SIZE,
     .default_mode = WMM_STACK,
 };
 
@@ -374,7 +380,7 @@ HWND create_window(HINSTANCE *hInstance, HWND hwnd_parent, int offset_left) {
         WINDOW_CLASSNAME,
         "2wiman",
         0,
-        offset_left, 0, DESK_TILE_SIZE.x * DESK_COUNT, DESK_TILE_SIZE.y,
+        0, 0, 0, 0,
         hwnd_parent,
         NULL,
         *hInstance,
@@ -413,6 +419,7 @@ BOOL enum_monitors(HMONITOR hmonitor, HDC hdc, LPRECT lpRect, LPARAM lParam) {
     GetMonitorInfoA(hmonitor, &lpmi);
     WIN_MONITOR wm = { .hmonitor = hmonitor, .front_desk = wms->monitor_count - 1, .desk_count = 1 };
     if(GetDpiForMonitor(hmonitor, MDT_EFFECTIVE_DPI, &wm.dpi, &wm.dpi) != S_OK) wm.dpi = DEFAULT_DPI;
+    wm.dpi_factor = (float)wm.dpi / DEFAULT_DPI;
     wm.h = lpmi.rcWork.bottom - lpmi.rcWork.top;
     wm.w = lpmi.rcWork.right - lpmi.rcWork.left;
     wm.pos = lpmi.rcWork;
@@ -420,8 +427,7 @@ BOOL enum_monitors(HMONITOR hmonitor, HDC hdc, LPRECT lpRect, LPARAM lParam) {
     HWND button_hwnd = create_button(wms->h_instance, wms->main_hwnd, wms->monitor_count - 1);
     wms->desk_list[wms->monitor_count - 1].button.hwnd = button_hwnd;
     wms->desk_list[wms->monitor_count - 1].button.is_tracking = TRUE;
-    int new_size = scale_to_dpi(DESK_TILE_SIZE.x, wm.dpi);
-    SetWindowPos(button_hwnd, 0, lpmi.rcWork.left, lpmi.rcWork.top, lpmi.rcWork.left + scale_to_dpi(DESK_TILE_SIZE.x, wm.dpi), lpmi.rcWork.top + scale_to_dpi(DESK_TILE_SIZE.y, wm.dpi), SWP_NOZORDER);
+    SetWindowPos(button_hwnd, 0, lpmi.rcWork.left, lpmi.rcWork.top, lpmi.rcWork.left + apply_dpi_factor(wiman_config.button_size.x, wm.dpi_factor), lpmi.rcWork.top + apply_dpi_factor(wiman_config.button_size.y, wm.dpi_factor), SWP_NOZORDER);
     wms->desk_list[wms->monitor_count - 1].button.last_set_left_top = (POINT){ .x = lpmi.rcWork.left, .y = lpmi.rcWork.top };
     // SetWindowPos(button_hwnd, 0, lpmi.rcWork.left, 0, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
     ShowWindow(button_hwnd, SW_SHOW);
@@ -610,14 +616,14 @@ void reposition_buttons(WIMAN_STATE *wms) {
         offset = offsets[monitor];
         if(offset == wms->desk_list[i].button.last_set_left_top.x && wms->monitors[monitor].pos.top == wms->desk_list[i].button.last_set_left_top.y) {
             log_to_file(wms, "Buttons: Skipping desktop button %d (position didn't change)\n", i);
-            offsets[monitor] += DESK_TILE_SIZE.x;
+            offsets[monitor] += wiman_config.button_size.x;
             continue;
         }
         log_to_file(wms, "Buttons: Setting desktop button %d position\n", i);
-        SetWindowPos(wms->desk_list[i].button.hwnd, 0, wms->monitors[monitor].pos.left + scale_to_dpi(offset, wms->monitors[monitor].dpi), wms->monitors[monitor].pos.top, wms->monitors[monitor].pos.left + scale_to_dpi(offset + DESK_TILE_SIZE.x, wms->monitors[monitor].dpi), wms->monitors[monitor].pos.top + scale_to_dpi(DESK_TILE_SIZE.y, wms->monitors[monitor].dpi), SWP_NOZORDER);
+        SetWindowPos(wms->desk_list[i].button.hwnd, 0, wms->monitors[monitor].pos.left + apply_dpi_factor(offset, wms->monitors[monitor].dpi_factor), wms->monitors[monitor].pos.top, wms->monitors[monitor].pos.left + apply_dpi_factor(offset + wiman_config.button_size.x, wms->monitors[monitor].dpi_factor), wms->monitors[monitor].pos.top + apply_dpi_factor(wiman_config.button_size.y, wms->monitors[monitor].dpi_factor), SWP_NOZORDER);
         wms->desk_list[i].button.last_set_left_top.x = offset;
         wms->desk_list[i].button.last_set_left_top.y = wms->monitors[monitor].pos.top;
-        offsets[monitor] += DESK_TILE_SIZE.x;
+        offsets[monitor] += wiman_config.button_size.x;
         // InvalidateRect(wms->desk_list[i].button.hwnd, 0, TRUE);
     }
     free(offsets);
@@ -800,7 +806,7 @@ int handle_keydown(int keyCode, int shift, int ctrl) {
         case VK_LEFT:
         case VK_UP:
             if(g_curr_desk.curr_wnd <= 0 && g_curr_desk.tiling_count >= 0) {
-                if(!wiman_config.stack_mode_infinite_scroll) break;
+                if(!wiman_config.is_stack_mode_infinite_scroll) break;
                 g_curr_desk.curr_wnd = g_curr_desk.tiling_count;
             }
             g_curr_desk.curr_wnd--;
@@ -808,7 +814,7 @@ int handle_keydown(int keyCode, int shift, int ctrl) {
         case VK_RIGHT:
         case VK_DOWN:
             if(g_curr_desk.curr_wnd >= g_curr_desk.tiling_count - 1) {
-                if(!wiman_config.stack_mode_infinite_scroll) break;
+                if(!wiman_config.is_stack_mode_infinite_scroll) break;
                 g_curr_desk.curr_wnd = -1;
             }
             g_curr_desk.curr_wnd++;
@@ -1003,7 +1009,7 @@ LRESULT CALLBACK ButtonWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lP
             for(int i = 0; i < wms.monitor_count; i++) {
                 if(i == desk->on_monitor) {
                     set_def_pos:
-                    SetWindowPos(hwnd, 0, desk->button.last_set_left_top.x, desk->button.last_set_left_top.y, 0, 0,  SWP_NOSIZE | SWP_NOZORDER | SWP_NOSENDCHANGING);
+                    SetWindowPos(hwnd, 0, desk->button.last_set_left_top.x, desk->button.last_set_left_top.y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOSENDCHANGING);
                     return 0;
                 }
                 if(is_point_in_rect(p, r)) {
@@ -1042,8 +1048,8 @@ LRESULT CALLBACK ButtonWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lP
             int is_active = desk == wms.curr_desk;
             int is_hovered = wms.desk_list[desk].button.is_hovered && !is_active;
             char buffer[2];
-            RECT pos_r = { ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.left + scale_to_dpi(DESK_TILE_SIZE.x, target_monitor->dpi), ps.rcPaint.top + scale_to_dpi(DESK_TILE_SIZE.y, target_monitor->dpi) };
-            int scaled_tile_offset = scale_to_dpi(TILE_OFFSET, target_monitor->dpi);
+            RECT pos_r = { ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.left + apply_dpi_factor(wiman_config.button_size.x, target_monitor->dpi_factor), ps.rcPaint.top + apply_dpi_factor(wiman_config.button_size.y, target_monitor->dpi_factor) };
+            int scaled_tile_offset = apply_dpi_factor(TILE_OFFSET, target_monitor->dpi_factor);
             RECT inner_tile = { pos_r.left + scaled_tile_offset, pos_r.top + scaled_tile_offset, pos_r.right - scaled_tile_offset, pos_r.bottom - scaled_tile_offset };
             FillRect(hdc, &pos_r, (HBRUSH)(CreateSolidBrush(BG_COLOR * !is_hovered + DESK_BG_COLORS[TRUE] * is_hovered)));
             FillRect(hdc, &inner_tile, (HBRUSH)(CreateSolidBrush(DESK_BG_COLORS[is_active])));
