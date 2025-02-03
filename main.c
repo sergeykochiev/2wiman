@@ -13,7 +13,6 @@
 #include <windowsx.h>
 #include <stdio.h>
 #include <wchar.h>
-#include <math.h>
 #include <string.h>
 #include <stdarg.h>
 #include <time.h>
@@ -460,7 +459,7 @@ BOOL CALLBACK enum_wnd(HWND hwnd, LPARAM lParam) {
     if(!is_resizable) return !append_new_wnd(&wmds.wnd_list, &wmds.wnd_count, new_wnd);
     return !insert_new_wnd(
         &wmds.wnd_list, &wmds.wnd_count, new_wnd,
-        wmds.tiling_count++ - 1
+        ++wmds.tiling_count
         // wmds.tiling_count + (wmds.wnd_count - wmds.tiling_count) * !is_resizable - 1
     );
     #undef wmds
@@ -508,7 +507,6 @@ int tile_windows_vert(WIMAN_DESKTOP_STATE *wmds, WIN_MONITOR *wm) {
     log_to_file(&wms, "Tiling windows (%lld in total) vertically\n", wmds->tiling_count);
     int window_w = wm->w / wmds->tiling_count;
     RECT pos = { wm->pos.left, wm->pos.top, wm->pos.left + window_w, wm->pos.bottom };
-    print_rect(pos);
     for(int i = 0; i < wmds->tiling_count; i++) {
         log_to_file(&wms, "Tiling vertically: Setting window %d position\n", i);
         HWND hwnd = wmds->wnd_list[i].hwnd;
@@ -523,17 +521,17 @@ int tile_windows_vert(WIMAN_DESKTOP_STATE *wmds, WIN_MONITOR *wm) {
 int tile_windows_horiz(WIMAN_DESKTOP_STATE *wmds, WIN_MONITOR *wm) {
     log_to_file(&wms, "Tiling windows (%lld in total) horizontally\n", wmds->tiling_count);
     int window_h = wm->h / wmds->tiling_count;
-    RECT pos = { wm->pos.left, wm->pos.top, wm->w, wm->pos.top + window_h }
+    RECT pos = { wm->pos.left, wm->pos.top, wm->w, wm->pos.top + window_h };
     for(int i = 0; i < wmds->tiling_count; i++) {
         log_to_file(&wms, "Tiling horizontally: Setting window %d position\n", i);
         HWND hwnd = wmds->wnd_list[i].hwnd;
-        position_window(hwnd, )
+        position_window(hwnd, &pos);
         wmds->wnd_list[i].last_set_pos = pos;
         // TODO i want the same border that window snapping uses around windows
         // long style = GetWindowLongPtrA(curr_hwnd, GWL_STYLE);
         // SetWindowLongPtrA(curr_hwnd, GWL_STYLE, style ^ !WS_SYSMENU);
-        p.rcNormalPosition.top += window_h;
-        p.rcNormalPosition.bottom += window_h;
+        pos.top += window_h;
+        pos.bottom += window_h;
     }
     return 0;
 }
