@@ -33,6 +33,9 @@ static const char SETTINGS_CLASSNAME[] = "2wiman-settings";
 #define DESK_COUNT 9
 #define TILE_OFFSET 3
 #define LOGFILE_BUFFER_SIZE 128
+#define CONFILE_ENTRY_NAXLEN 64
+#define DESK_TILE_MIN_SIZE 16
+#define DESK_TILE_MAX_SIZE 128
 #define MODIFIER_KEY VK_CAPITAL
 #define scale_to_dpi(thing, dpi) ((thing) * dpi / DEFAULT_DPI)
 #define apply_dpi_factor(thing, factor) ((thing) * (factor * wiman_config.is_scale_with_dpi + 1 * !wiman_config.is_scale_with_dpi))
@@ -129,6 +132,7 @@ typedef struct {
     BOOL is_scale_with_dpi;
 } WIMAN_CONFIG;
 
+// defaults
 WIMAN_CONFIG wiman_config = {
     .is_stack_mode_infinite_scroll = FALSE,
     .is_scale_with_dpi = TRUE,
@@ -145,64 +149,41 @@ UINT WM_SHELLHOOKMESSAGE;
 
 struct {
     size_t offset;
-    const char name[48];
-} config_names_map[] = {
+    const char name[CONFILE_ENTRY_NAXLEN];
+    int maxValue;
+    int minValue;
+} config_config[] = {
     {
-        .name = "is_stack_mode_infinite_scroll",
-        .offset = offsetof(WIMAN_CONFIG, is_stack_mode_infinite_scroll)
+        .name = "stack_mode_infinite_scroll",
+        .offset = offsetof(WIMAN_CONFIG, is_stack_mode_infinite_scroll),
+        .minValue = FALSE,
+        .maxValue = TRUE
     },
     {
-        .name = "is_scale_with_dpi",
-        .offset = offsetof(WIMAN_CONFIG, is_scale_with_dpi)
+        .name = "scale_with_dpi",
+        .offset = offsetof(WIMAN_CONFIG, is_scale_with_dpi),
+        .minValue = FALSE,
+        .maxValue = TRUE
     },
     {
         .name = "button_size_x",
-        .offset = offsetof(WIMAN_CONFIG, button_size)
+        .offset = offsetof(WIMAN_CONFIG, button_size),
+        .minValue = DESK_TILE_MIN_SIZE,
+        .maxValue = DESK_TILE_MAX_SIZE
     },
     {
         .name = "button_size_y",
-        .offset = offsetof(WIMAN_CONFIG, button_size) + offsetof(POINT, y)
+        .offset = offsetof(WIMAN_CONFIG, button_size) + offsetof(POINT, y),
+        .minValue = DESK_TILE_MIN_SIZE,
+        .maxValue = DESK_TILE_MAX_SIZE
     },
     {
         .name = "default_mode",
-        .offset = offsetof(WIMAN_CONFIG, default_mode)
+        .offset = offsetof(WIMAN_CONFIG, default_mode),
+        .minValue = 0,
+        .maxValue = WMM_COUNT - 1
     }
 };
-
-const char CONFIG_BUFFER[] = "is_stack_mode_infinite_scroll=1\ndefault_mode=1\nbutton_size_x=32\nbutton_size_y=32\nis_scale_with_dpi=1\n";
-
-int parse_config_file(WIMAN_CONFIG *wmcfg, const char buffer[], size_t len) {
-    char c;
-    char name_buf[48];
-    long long offset = 1;
-    int cur = 0;
-    for(int i = 0; i < len; i++) {
-        c = buffer[i];
-        if(c == '=') {
-            cur = 0;
-            offset = -1;
-            printf("searhing for %s\n", name_buf);
-            for(int j = 0; j < 5; j++) {
-                if(strncmp(config_names_map[j].name, name_buf, strlen(config_names_map[j].name)) == 0) {
-                    printf("found\n");
-                    offset = config_names_map[j].offset;
-                }
-            }
-            if(offset == -1) {
-                printf("Invalid config entry\n");
-                return 1;
-            }
-        } else if(c == '\n') {
-            name_buf[cur] = '\0';
-            printf("assigning %s\n", name_buf);
-            cur = 0;
-            *(long*)((char*)wmcfg + offset) = atol(name_buf);
-        } else {
-            name_buf[cur] = c;
-            cur++;
-        }
-    }
-}
 
 void get_time(char* output) {
     time_t tt = time(0);
@@ -211,20 +192,57 @@ void get_time(char* output) {
     sprintf(output, "[%d.%d.%d %d:%d:%d] ", t.tm_mday, t.tm_mon + 1, t.tm_year + 1900, t.tm_hour, t.tm_min, t.tm_sec);
 }
 
-void scale_rect_to_dpi(RECT *r, int dpi) {
-    r->bottom = scale_to_dpi(r->bottom, dpi);
-    r->top = scale_to_dpi(r->top, dpi);
-    r->left = scale_to_dpi(r->left, dpi);
-    r->right = scale_to_dpi(r->right, dpi);
-    return;
-}
-
 void log_to_file(WIMAN_STATE *wms, const char *pattern, ...) {
     va_list args;
     va_start(args, pattern);
     get_time(wms->time_buffer);
     fprintf_s(wms->logfile, wms->time_buffer);
     vfprintf_s(wms->logfile, pattern, args);
+    return;
+}
+
+int parse_config_file(WIMAN_CONFIG *wmcfg, FILE *f) {
+    log_to_file(&wms, "Parsing config file\n");
+    char c, name_buf[CONFILE_ENTRY_NAXLEN];
+    int entry = -1, cur = 0, value, line = 0, i = 0;
+    while(!ferror(f)) {
+        c = fgetc(f);
+        if(c == '=') {
+            name_buf[cur] = '\0';
+            cur = 0;
+            for(int j = 0; j < 5; j++) if(strncmp(config_config[j].name, name_buf, strlen(config_config[j].name)) == 0) entry = j;
+            if(entry == -1) {
+                log_to_file(&wms, "Parsing: error at %d:%d: Invalid config entry \"%s\"\n", line, i, name_buf);
+                return 1;
+            }
+        } else if(c == '\n' || feof(f)) {
+            name_buf[cur] = '\0';
+            cur = 0;
+            value = atoi(name_buf);
+            printf("%d\n", value);
+            if(value < config_config[entry].minValue || value > config_config[entry].maxValue || value == 0 && name_buf[0] != '0') {
+                log_to_file(&wms, "Parsing: warning at %d:%d: Skipping invalid value \"%s\" for parameter \"%s\",\n", line, i, name_buf, config_config[entry].name);
+            } else {
+                *(int*)((char*)wmcfg + config_config[entry].offset) = value;
+            }
+            entry = -1;
+            line++;
+            i = -1;
+            if(feof(f)) break;
+        } else {
+            name_buf[cur] = c;
+            cur++;
+        }
+        i++;
+    }
+    return 0;
+}
+
+void scale_rect_to_dpi(RECT *r, int dpi) {
+    r->bottom = scale_to_dpi(r->bottom, dpi);
+    r->top = scale_to_dpi(r->top, dpi);
+    r->left = scale_to_dpi(r->left, dpi);
+    r->right = scale_to_dpi(r->right, dpi);
     return;
 }
 
@@ -494,6 +512,7 @@ BOOL enum_monitors(HMONITOR hmonitor, HDC hdc, LPRECT lpRect, LPARAM lParam) {
     HWND button_hwnd = create_button(wms->h_instance, wms->main_hwnd, wms->monitor_count - 1);
     wms->desk_list[wms->monitor_count - 1].button.hwnd = button_hwnd;
     wms->desk_list[wms->monitor_count - 1].button.is_tracking = TRUE;
+    wms->desk_list[wms->monitor_count - 1].mode = wiman_config.default_mode;
     SetWindowPos(button_hwnd, 0, lpmi.rcWork.left, lpmi.rcWork.top, lpmi.rcWork.left + apply_dpi_factor(wiman_config.button_size.x, wm.dpi_factor), lpmi.rcWork.top + apply_dpi_factor(wiman_config.button_size.y, wm.dpi_factor), SWP_NOZORDER);
     wms->desk_list[wms->monitor_count - 1].button.last_set_left_top = (POINT){ .x = lpmi.rcWork.left, .y = lpmi.rcWork.top };
     // SetWindowPos(button_hwnd, 0, lpmi.rcWork.left, 0, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
@@ -1144,10 +1163,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     wms.h_instance = &hInstance;
 
-    WIMAN_CONFIG test_cfg = {};
-    printf("asdhuasuhd %d %d %ld %ld %d\n", test_cfg.is_stack_mode_infinite_scroll, test_cfg.default_mode, test_cfg.button_size.x, test_cfg.button_size.y, test_cfg.is_scale_with_dpi);
-    parse_config_file(&test_cfg, CONFIG_BUFFER, strlen(CONFIG_BUFFER));
-    printf("asdhuasuhd %d %d %ld %ld %d\n", test_cfg.is_stack_mode_infinite_scroll, test_cfg.default_mode, test_cfg.button_size.x, test_cfg.button_size.y, test_cfg.is_scale_with_dpi);
+    log_to_file(&wms, "Attempting to find config file\n");
+    FILE *confile;
+    fopen_s(&confile, "2wiman.conf", "r");
+    if(confile == NULL) {
+        log_to_file(&wms, "Config file not found, using defaults\n");
+    } else {
+        parse_config_file(&wiman_config, confile);
+        fclose(confile);
+    }
 
     log_to_file(&wms, "Registering window classes\n");
     wms.wc.main = (WNDCLASS){ .lpfnWndProc = main_window_proc, .hInstance = hInstance, .lpszClassName = WINDOW_CLASSNAME };
@@ -1192,6 +1216,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     log_to_file(&wms, "Fetched %lld monitors\n", wms.monitor_count);
     for(int i = wms.monitor_count; i < DESK_COUNT; i++) {
         wms.desk_list[i].on_monitor = -1;
+        wms.desk_list[i].mode = wiman_config.default_mode;
         wms.desk_list[i].button.is_tracking = TRUE;
         wms.desk_list[i].button.hwnd = create_button(&hInstance, wms.main_hwnd, i);
     }
