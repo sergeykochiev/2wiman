@@ -26,6 +26,7 @@ static const COLORREF DESK_BG_COLORS[2] = { [FALSE] = DESK_BG_COLOR, [TRUE] = AC
 static const POINT DESK_TILE_SIZE = { 32, 32 };
 static const char WINDOW_CLASSNAME[] = "2wiman";
 static const char BUTTON_CLASSNAME[] = "2wiman-control";
+static const char SETTINGS_CLASSNAME[] = "2wiman-settings";
 #define WM_NOTIFYICON WM_APP + 1
 #define DESK_COUNT 9
 #define TILE_OFFSET 3
@@ -77,16 +78,20 @@ typedef enum {
     WMM_COUNT,
 } WIMAN_MODE;
 
-typedef struct {
-    HWND hwnd;
-    POINT last_set_left_top;
-    int is_hovered;
-    int is_tracking;
-} WIMAN_DESK_BUTTON;
+typedef enum {
+    OPTION_EXIT,
+    OPTION_SETTINGS,
+    OPTION_COUNT,
+} WIMAN_ICON_OPTION;
 
 typedef struct {
     WIMAN_WINDOW *wnd_list;
-    WIMAN_DESK_BUTTON button;
+    struct {
+        HWND hwnd;
+        POINT last_set_left_top;
+        int is_hovered;
+        int is_tracking;
+    } button;
     size_t wnd_count;
     size_t tiling_count;
     int curr_wnd;
@@ -106,16 +111,23 @@ typedef struct {
     char time_buffer[32];
     FILE *logfile;
     HINSTANCE *h_instance;
+    union {
+        WNDCLASS button;
+        WNDCLASS main;
+        WNDCLASS settings;
+    } wc;
 } WIMAN_STATE;
 
 WIMAN_STATE wms = {};
 
-struct {
+typedef struct {
     BOOL is_stack_mode_infinite_scroll;
     WIMAN_MODE default_mode;
     POINT button_size;
     BOOL is_scale_with_dpi;
-} wiman_config = {
+} WIMAN_CONFIG;
+
+WIMAN_CONFIG wiman_config = {
     .is_stack_mode_infinite_scroll = FALSE,
     .is_scale_with_dpi = TRUE,
     .button_size = DESK_TILE_SIZE,
@@ -128,12 +140,6 @@ const char* const WMM_NAMES[WMM_COUNT] = {
     [WMM_STACK] = "stack",
 };
 UINT WM_SHELLHOOKMESSAGE;
-
-LRESULT CALLBACK keyboard_proc(int nCode, WPARAM wParam, LPARAM lParam);
-LRESULT CALLBACK MainWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
-LRESULT CALLBACK GuiWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
-LRESULT CALLBACK ButtonWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
-void winevent_proc(HWINEVENTHOOK hWinEventHook, DWORD event, HWND hwnd, LONG idObject, LONG idChild, DWORD idEventThread, DWORD dwmsEventTime);
 
 void get_time(char* output) {
     time_t tt = time(0);
@@ -369,7 +375,7 @@ int is_window_thread_suspended(HWND hwnd) {
 int is_actual_window(HWND hwnd) {
     long dxExStyle = GetWindowLongA(hwnd, GWL_EXSTYLE);
     long dxStyle = GetWindowLongA(hwnd, GWL_STYLE);
-    return (!is_param_in_xor(dxExStyle, WS_EX_NOREDIRECTIONBITMAP) || is_param_in_xor(dxStyle, WS_CAPTION)) && IsWindowVisible(hwnd) && GetWindowTextLengthA(hwnd) && !is_toolwindow(dxExStyle);
+    return is_param_in_xor(dxStyle, WS_CAPTION) && IsWindowVisible(hwnd) && GetWindowTextLengthA(hwnd) && !is_toolwindow(dxExStyle);
 }
 
 HWND create_window(HINSTANCE *hInstance, HWND hwnd_parent, int offset_left) {
@@ -475,15 +481,17 @@ int move_wnd_to_desk(WIMAN_DESKTOP_STATE *desk_from, int wnd, WIMAN_DESKTOP_STAT
     return desk_to->tiling_count - 1;
 }
 
-// Snippet of code that uses inbuilt tiling system to tile windows. I still haven't figured out how to make it tile more than 2 on screen
-    // int window_w = state->monitor_size.w / state->windows_list.len;
-    // RECT window_pos = {0, 0, window_w, state->monitor_size.h - 20};
-    // for(int i = 0; i < state->windows_list.len; i++) {
-    //     TileWindows(NULL, MDITILE_VERTICAL, &window_pos, 1, &(state->windows_list.list[i].hwnd));
-    //     window_pos.left += window_w - 1;
-    //     window_pos.right += window_w - 1;
-    // }
-    // return 0;
+// tile_windows_vert that uses inbuilt tiling system to tile windows
+// int tile_windows_vert(WIMAN_DESKTOP_STATE *wmds, WIN_MONITOR *wm) {
+//     log_to_file(&wms, "Tiling windows (%lld in total) vertically using Windows inbuilt system\n", wmds->tiling_count);
+//     HWND *lpKids = calloc(wmds->tiling_count, sizeof(HWND));
+//     for(int i = 0; i < wmds->tiling_count; i++) {
+//         lpKids[i] = wmds->wnd_list[i].hwnd;
+//     }
+//     TileWindows(NULL, MDITILE_VERTICAL, NULL, wmds->tiling_count, lpKids);
+//     free(lpKids);
+//     return 0;
+// }
 
 
 int toggle_wnd_freeroam(WIMAN_DESKTOP_STATE *wmds, int idx, WIN_MONITOR *wm) {
@@ -709,81 +717,6 @@ int send_wnd_to_desk(WIMAN_STATE *wms, int wnd, int from, int desk) {
     return 0;
 }
 
-// TODO FIX sending desktops to different monitors doesn't work properly
-// (fixed, the solution is questionable) TODO find a way to detect when a single window on a desktop is closing or minimizing (previous solution expectidly didn't work fully)
-// TODO add plus button on every monitor
-// (idk how honestly) TODO fetch hidden windows too
-// TODO .IDEA handle movesizestart event and assign window id to dragging_this and resizing_this flags in state
-// TODO somehow handle monitor changed event, ideally on cursor switch to it.
-// TODO FIX sometimes app crashes on window open
-// TODO FIX some fullscreen apps (games) doesn't allow to capture key input and doesn't hide/show properly
-// (works, needs further testing) TODO .IDEA if cannot set the position make it freeroam and add some flag like is_permanenty_freeroam (is_unresizable)
-// TODO FIX spotify rerenders ui on every reposition
-// (currently and probably at all undoable) TODO FIX weird margins around some windows
-// TODO .IDEA handle WM_DPICHANGED
-// TODO .IDEA use deferwindowpos and enddeferwindowpos for tiling windows
-// TODO FIX sometimes weird things happen when opening a window or switching windows while there are freeroam ones
-// TODO closing windows shortcut
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd) {
-    fopen_s(&wms.logfile, "2wiman.log", "w");
-    SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-    wms.h_instance = &hInstance;
-
-    log_to_file(&wms, "Creating main window\n");
-    WNDCLASS main_wc = { .lpfnWndProc = MainWindowProc, .hInstance = hInstance, .lpszClassName = WINDOW_CLASSNAME };
-    RegisterClass(&main_wc);
-    wms.main_hwnd = CreateWindowExA(0, WINDOW_CLASSNAME, "mywindow", 0, 0, 0, 0, 0, NULL, NULL, hInstance, NULL);
-
-    log_to_file(&wms, "Registering button class\n");
-    WNDCLASS button_wc = { .lpfnWndProc = ButtonWindowProc, .hInstance = hInstance, .lpszClassName = BUTTON_CLASSNAME, .cbWndExtra = sizeof(int) };
-    RegisterClass(&button_wc);
-
-    log_to_file(&wms, "Initializing hooks\n");
-    HHOOK keyboard_hook = SetWindowsHookExA(WH_KEYBOARD_LL, keyboard_proc, NULL, 0);
-    HWINEVENTHOOK msg_hook = SetWinEventHook(EVENT_SYSTEM_MOVESIZESTART, EVENT_OBJECT_STATECHANGE, NULL, winevent_proc, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
-    RegisterShellHookWindow(wms.main_hwnd);
-    // WM_SHELLHOOKMESSAGE = RegisterWindowMessage(TEXT("SHELLHOOK"));
-
-    log_to_file(&wms, "Setting up tray icon\n");
-    int icon_uid = 1;
-    NOTIFYICONDATAA icon_data = {
-        .cbSize = sizeof(NOTIFYICONDATA),
-        .hWnd = wms.main_hwnd,
-        .uID = icon_uid,
-        .uFlags = NIF_MESSAGE,
-        .uVersion = NOTIFYICON_VERSION_4,
-        .uCallbackMessage = WM_NOTIFYICON,
-    };
-    Shell_NotifyIconA(NIM_ADD, &icon_data);
-    Shell_NotifyIconA(NIM_SETVERSION, &icon_data);
-    
-    log_to_file(&wms, "Fetching windows\n");
-    wms.curr_desk = 0;
-    g_curr_desk = (WIMAN_DESKTOP_STATE){ .curr_wnd = -1 };
-    EnumWindows(enum_wnd, (LPARAM)&wms);
-    log_to_file(&wms, "Fetched %lld windows, %lld tiling\n", g_curr_desk.wnd_count, g_curr_desk.tiling_count);
-    if(g_curr_desk.wnd_count > 0) g_curr_desk.curr_wnd = 0;
-
-    log_to_file(&wms, "Fetching monitors\n");
-    wms.monitors = calloc(0, sizeof(WIN_MONITOR));
-    EnumDisplayMonitors(NULL, NULL, enum_monitors, (LPARAM)&wms);
-    log_to_file(&wms, "Fetched %lld monitors\n", wms.monitor_count);
-    for(int i = wms.monitor_count; i < DESK_COUNT; i++) {
-        wms.desk_list[i].on_monitor = -1;
-        wms.desk_list[i].button.is_tracking = TRUE;
-        wms.desk_list[i].button.hwnd = create_button(&hInstance, wms.main_hwnd, i);
-    }
-
-    init_curr_mode_reposition(&wms.desk_list[wms.curr_desk], &wms.monitors[wms.desk_list[wms.curr_desk].on_monitor]);
-    MSG msg = { };
-    while (GetMessage(&msg, NULL, 0, 0) > 0)
-    {
-        TranslateMessage(&msg);
-        DispatchMessage(&msg);
-    }
-    return 0;
-}
-
 int handle_keydown(int keyCode, int shift, int ctrl) {
     int prev_act_idx = g_curr_desk.curr_wnd;
     switch (keyCode)
@@ -846,7 +779,7 @@ int handle_keydown(int keyCode, int shift, int ctrl) {
     return 2;
 }
 
-LRESULT CALLBACK MainWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+LRESULT CALLBACK main_window_proc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     if(uMsg == WM_SHELLHOOKMESSAGE) {
         #define chwnd (HWND)lParam
@@ -915,12 +848,12 @@ LRESULT CALLBACK MainWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
                 case WM_LBUTTONUP:
                 case WM_RBUTTONUP: {
                     HMENU hm = CreatePopupMenu();
-                    InsertMenu(hm, 0, MF_BYPOSITION | MF_STRING, 1, "Exit");
-                    InsertMenu(hm, 0, MF_BYPOSITION | MF_STRING, 0, "Settings");
+                    InsertMenu(hm, 0, MF_BYPOSITION | MF_STRING, OPTION_EXIT, "Exit");
+                    InsertMenu(hm, 0, MF_BYPOSITION | MF_STRING, OPTION_SETTINGS, "Settings");
                     SetForegroundWindow(wms.main_hwnd);
                     switch(TrackPopupMenu(hm, TPM_VERNEGANIMATION | TPM_RETURNCMD | TPM_BOTTOMALIGN | TPM_LEFTBUTTON | TPM_LEFTALIGN, cur.x, cur.y, 0, wms.main_hwnd, NULL)) {
                         PostMessage(wms.main_hwnd, WM_NULL, 0, 0);
-                        case 1: {
+                        case OPTION_EXIT: {
                             SendMessage(wms.main_hwnd, WM_CLOSE, 0, 0);
                             return 0;
                         }
@@ -934,6 +867,7 @@ LRESULT CALLBACK MainWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
         }
         case WM_DESTROY:
             PostQuitMessage(0);
+            UnregisterClassA(WINDOW_CLASSNAME, *wms.h_instance);
             break;
         case WM_CLOSE:
             log_to_file(&wms, "Exiting 2wiman\n");
@@ -963,7 +897,7 @@ LRESULT CALLBACK keyboard_proc(int nCode, WPARAM wParam, LPARAM lParam) {
     return CallNextHookEx(NULL, nCode, wParam, lParam);
 }
 
-LRESULT CALLBACK ButtonWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+LRESULT CALLBACK button_window_proc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
         case WM_LBUTTONDOWN: {
             int desk = GetWindowLongPtrA(hwnd, -21);
@@ -1020,6 +954,7 @@ LRESULT CALLBACK ButtonWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lP
         }
         case WM_DESTROY:
             PostQuitMessage(0);
+            UnregisterClassA(BUTTON_CLASSNAME, *wms.h_instance);
             break;
         case WM_CLOSE:
             break;
@@ -1054,18 +989,10 @@ LRESULT CALLBACK ButtonWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lP
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
-void winevent_proc(
-  HWINEVENTHOOK hWinEventHook,
-  DWORD event,
-  HWND hwnd,
-  LONG idObject,
-  LONG idChild,
-  DWORD idEventThread,
-  DWORD dwmsEventTime
+void winevent_proc(HWINEVENTHOOK hWinEventHook, DWORD event, HWND hwnd, LONG idObject, LONG idChild, DWORD idEventThread, DWORD dwmsEventTime
 ) {
     if(!is_actual_window(hwnd)) return;
     int wnd_id = get_wnd_id_by_hwnd(&g_curr_desk, hwnd);
-    // printf("MESSAGE for window %d: %lu\n", wnd_id, event);
     if(wnd_id == -1) return;
     switch(event) {
         // statechange works for indentifying the closing of a window somehow
@@ -1112,6 +1039,7 @@ void winevent_proc(
             switch(g_curr_desk.mode) {
                 case WMM_STACK:
                     position_window(hwnd, lsp);
+                    ShowWindow(hwnd, SW_MAXIMIZE);
                     break;
                 case WMM_TILING_V:
                     new_place = g_curr_desk.tiling_count * clp.x / wms.monitors[g_curr_desk.on_monitor].w;
@@ -1131,4 +1059,81 @@ void winevent_proc(
             SetActiveWindow(hwnd);
             break;
     }
+}
+
+// TODO FIX sending desktops to different monitors doesn't work properly
+// (fixed, the solution is questionable) TODO find a way to detect when a single window on a desktop is closing or minimizing (previous solution expectidly didn't work fully)
+// TODO add plus button on every monitor
+// (idk how honestly) TODO fetch hidden windows too
+// TODO .IDEA handle movesizestart event and assign window id to dragging_this and resizing_this flags in state
+// TODO somehow handle monitor changed event, ideally on cursor switch to it.
+// TODO FIX sometimes app crashes on window open
+// TODO FIX some fullscreen apps (games) doesn't allow to capture key input and doesn't hide/show properly
+// (works, needs further testing) TODO .IDEA if cannot set the position make it freeroam and add some flag like is_permanenty_freeroam (is_unresizable)
+// TODO FIX spotify rerenders ui on every reposition
+// (currently and probably at all undoable) TODO FIX weird margins around some windows
+// TODO .IDEA handle WM_DPICHANGED
+// TODO .IDEA use deferwindowpos and enddeferwindowpos for tiling windows
+// TODO FIX sometimes weird things happen when opening a window or switching windows while there are freeroam ones
+// TODO closing windows shortcut
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd) {
+    fopen_s(&wms.logfile, "2wiman.log", "w");
+    SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    wms.h_instance = &hInstance;
+
+    log_to_file(&wms, "Registering window classes\n");
+    wms.wc.main = (WNDCLASS){ .lpfnWndProc = main_window_proc, .hInstance = hInstance, .lpszClassName = WINDOW_CLASSNAME };
+    RegisterClass(&wms.wc.main);
+    wms.wc.button = (WNDCLASS){ .lpfnWndProc = button_window_proc, .hInstance = hInstance, .lpszClassName = BUTTON_CLASSNAME, .cbWndExtra = sizeof(int) };
+    RegisterClass(&wms.wc.button);
+    wms.wc.settings = (WNDCLASS){ .lpfnWndProc = button_window_proc, .hInstance = hInstance, .lpszClassName = BUTTON_CLASSNAME, .cbWndExtra = sizeof(int) };
+    RegisterClass(&wms.wc.settings);
+
+    log_to_file(&wms, "Creating main window\n");
+    wms.main_hwnd = CreateWindowExA(0, WINDOW_CLASSNAME, "mywindow", 0, 0, 0, 0, 0, NULL, NULL, hInstance, NULL);
+
+    log_to_file(&wms, "Initializing hooks\n");
+    HHOOK keyboard_hook = SetWindowsHookExA(WH_KEYBOARD_LL, keyboard_proc, NULL, 0);
+    HWINEVENTHOOK msg_hook = SetWinEventHook(EVENT_SYSTEM_MOVESIZESTART, EVENT_OBJECT_STATECHANGE, NULL, winevent_proc, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+    RegisterShellHookWindow(wms.main_hwnd);
+    WM_SHELLHOOKMESSAGE = RegisterWindowMessage(TEXT("SHELLHOOK"));
+
+    log_to_file(&wms, "Setting up tray icon\n");
+    int icon_uid = 1;
+    NOTIFYICONDATAA icon_data = {
+        .cbSize = sizeof(NOTIFYICONDATA),
+        .hWnd = wms.main_hwnd,
+        .uID = icon_uid,
+        .uFlags = NIF_MESSAGE,
+        .uVersion = NOTIFYICON_VERSION_4,
+        .uCallbackMessage = WM_NOTIFYICON,
+    };
+    Shell_NotifyIconA(NIM_ADD, &icon_data);
+    Shell_NotifyIconA(NIM_SETVERSION, &icon_data);
+    
+    log_to_file(&wms, "Fetching windows\n");
+    wms.curr_desk = 0;
+    g_curr_desk = (WIMAN_DESKTOP_STATE){ .curr_wnd = -1 };
+    EnumWindows(enum_wnd, (LPARAM)&wms);
+    log_to_file(&wms, "Fetched %lld windows, %lld tiling\n", g_curr_desk.wnd_count, g_curr_desk.tiling_count);
+    if(g_curr_desk.wnd_count > 0) g_curr_desk.curr_wnd = 0;
+
+    log_to_file(&wms, "Fetching monitors\n");
+    wms.monitors = calloc(0, sizeof(WIN_MONITOR));
+    EnumDisplayMonitors(NULL, NULL, enum_monitors, (LPARAM)&wms);
+    log_to_file(&wms, "Fetched %lld monitors\n", wms.monitor_count);
+    for(int i = wms.monitor_count; i < DESK_COUNT; i++) {
+        wms.desk_list[i].on_monitor = -1;
+        wms.desk_list[i].button.is_tracking = TRUE;
+        wms.desk_list[i].button.hwnd = create_button(&hInstance, wms.main_hwnd, i);
+    }
+
+    init_curr_mode_reposition(&wms.desk_list[wms.curr_desk], &wms.monitors[wms.desk_list[wms.curr_desk].on_monitor]);
+    MSG msg = { };
+    while (GetMessage(&msg, NULL, 0, 0) > 0)
+    {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
+    return 0;
 }
