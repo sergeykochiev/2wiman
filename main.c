@@ -5,7 +5,7 @@
 #include <vadefs.h>
 #include <winbase.h>
 #include <windef.h>
-#include "C:\Users\dupa\gcc\x86_64-w64-mingw32\include\wingdi.h"
+#include "wingdi.h"
 #include <wingdi.h>
 #include <winnt.h>
 #include <winuser.h>
@@ -512,7 +512,6 @@ int tile_windows_vert(WIMAN_DESKTOP_STATE *wmds, WIN_MONITOR *wm) {
     for(int i = 0; i < wmds->tiling_count; i++) {
         log_to_file(&wms, "Tiling vertically: Setting window %d position\n", i);
         HWND hwnd = wmds->wnd_list[i].hwnd;
-        print_rect(pos);
         position_window(hwnd, &pos);
         wmds->wnd_list[i].last_set_pos = pos;
         pos.left += window_w;
@@ -524,21 +523,12 @@ int tile_windows_vert(WIMAN_DESKTOP_STATE *wmds, WIN_MONITOR *wm) {
 int tile_windows_horiz(WIMAN_DESKTOP_STATE *wmds, WIN_MONITOR *wm) {
     log_to_file(&wms, "Tiling windows (%lld in total) horizontally\n", wmds->tiling_count);
     int window_h = wm->h / wmds->tiling_count;
-    WINDOWPLACEMENT p = {
-        .rcNormalPosition = (RECT){wm->pos.left, 0, wm->w + wm->pos.left, window_h},
-        .length = sizeof(WINDOWPLACEMENT),
-        .showCmd = SW_RESTORE,
-    };
-    RECT wp = {};
+    RECT pos = { wm->pos.left, wm->pos.top, wm->w, wm->pos.top + window_h }
     for(int i = 0; i < wmds->tiling_count; i++) {
         log_to_file(&wms, "Tiling horizontally: Setting window %d position\n", i);
-        HWND curr_hwnd = wmds->wnd_list[i].hwnd;
-        if(!SetWindowPlacement(curr_hwnd, &p)) return 1;
-        GetWindowRect(curr_hwnd, &wp);
-        if(wp.bottom > window_h * (i + 1)) {
-            if(!SetWindowPos(curr_hwnd, HWND_BOTTOM, p.rcNormalPosition.left, p.rcNormalPosition.top, wm->w, window_h, SWP_DEFERERASE | SWP_NOSENDCHANGING)) return 1;
-        }
-        wmds->wnd_list[i].last_set_pos = p.rcNormalPosition;
+        HWND hwnd = wmds->wnd_list[i].hwnd;
+        position_window(hwnd, )
+        wmds->wnd_list[i].last_set_pos = pos;
         // TODO i want the same border that window snapping uses around windows
         // long style = GetWindowLongPtrA(curr_hwnd, GWL_STYLE);
         // SetWindowLongPtrA(curr_hwnd, GWL_STYLE, style ^ !WS_SYSMENU);
