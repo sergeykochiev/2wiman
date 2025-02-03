@@ -1,18 +1,11 @@
 #include "windows.h"
 #include <minwindef.h>
-#include <processthreadsapi.h>
 #include <shellapi.h>
-#include <vadefs.h>
-#include <winbase.h>
-#include <windef.h>
 #include "wingdi.h"
-#include <wingdi.h>
 #include <winnt.h>
 #include <winuser.h>
-#include <commctrl.h>
 #include <windowsx.h>
 #include <stdio.h>
-#include <wchar.h>
 #include <string.h>
 #include <stdarg.h>
 #include <time.h>
@@ -56,13 +49,6 @@ static const char BUTTON_CLASSNAME[] = "2wiman-control";
 #define HOVER_AND_LEAVE ONLY_HOVER | ONLY_LEAVE
 #define hover_or_leave(hover) (TME_HOVER + !hover)
 #define dpi_awareness() GetAwarenessFromDpiAwarenessContext(GetThreadDpiAwarenessContext())
-
-typedef struct {
-    int is_stack_mode_infinite_scroll;
-    int default_mode;
-    POINT button_size;
-    BOOL is_scale_with_dpi;
-} WIMAN_CONFIG;
 
 typedef struct {
     HWND hwnd;
@@ -124,7 +110,12 @@ typedef struct {
 
 WIMAN_STATE wms = {};
 
-WIMAN_CONFIG wiman_config = {
+struct {
+    BOOL is_stack_mode_infinite_scroll;
+    WIMAN_MODE default_mode;
+    POINT button_size;
+    BOOL is_scale_with_dpi;
+} wiman_config = {
     .is_stack_mode_infinite_scroll = FALSE,
     .is_scale_with_dpi = TRUE,
     .button_size = DESK_TILE_SIZE,
@@ -467,7 +458,7 @@ BOOL CALLBACK enum_wnd(HWND hwnd, LPARAM lParam) {
     if(!is_resizable) return !append_new_wnd(&wmds.wnd_list, &wmds.wnd_count, new_wnd);
     return !insert_new_wnd(
         &wmds.wnd_list, &wmds.wnd_count, new_wnd,
-        ++wmds.tiling_count
+        wmds.tiling_count++ - 1
         // wmds.tiling_count + (wmds.wnd_count - wmds.tiling_count) * !is_resizable - 1
     );
     #undef wmds
@@ -499,7 +490,7 @@ int toggle_wnd_freeroam(WIMAN_DESKTOP_STATE *wmds, int idx, WIN_MONITOR *wm) {
     #define wnd wmds->wnd_list[idx]
     log_to_file(&wms, "Toggling window %d freeroam (currently %s)\n", idx + 1, wnd.is_freeroam ? "ON" : "OFF");
     if(wnd.is_unresizable) {
-        log_to_file(&wms, "Toggling freeroam: window is unresizable, returning")
+        log_to_file(&wms, "Toggling freeroam: window is unresizable, returning");
         return 2;
     }
     int offset = (wmds->wnd_count - wmds->tiling_count) * 32;
@@ -736,10 +727,7 @@ int send_wnd_to_desk(WIMAN_STATE *wms, int wnd, int from, int desk) {
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd) {
     fopen_s(&wms.logfile, "2wiman.log", "w");
     SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-    // MonitorFromWindow(GetDesktopWindow(), MONITOR_DEFAULTTOPRIMARY)
     wms.h_instance = &hInstance;
-    // wms.dpi = GetDpiForSystem();
-    // log_to_file(&wms, "System DPI is %d\n", wms.dpi);
 
     log_to_file(&wms, "Creating main window\n");
     WNDCLASS main_wc = { .lpfnWndProc = MainWindowProc, .hInstance = hInstance, .lpszClassName = WINDOW_CLASSNAME };
