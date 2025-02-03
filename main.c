@@ -285,12 +285,20 @@ int position_window(HWND hwnd, RECT *r) {
         .showCmd = SW_RESTORE,
     };
     RECT gwr;
-    if(!SetWindowPlacement(hwnd, &wp)) return 1;
+    BOOL result = SetWindowPlacement(hwnd, &wp);
+    if(!result) {
+        log_to_file(&wms, "Positioning window: SetWindowPlacement failed with code 0x%x\n", GetLastError());
+        goto set_window_pos;
+    }
     GetWindowRect(hwnd, &gwr);
     if(gwr.bottom > r->bottom || gwr.right > r->right) {
-        return !SetWindowPos(hwnd, NULL, r->left, r->top, r->right - r->left, r->bottom - r->top, SWP_DEFERERASE | SWP_NOSENDCHANGING | SWP_NOOWNERZORDER);
+        set_window_pos:
+        result = SetWindowPos(hwnd, NULL, r->left, r->top, r->right - r->left, r->bottom - r->top, SWP_DEFERERASE | SWP_NOSENDCHANGING | SWP_NOOWNERZORDER);
     }
-    return 0;
+    if(!result) {
+        log_to_file(&wms, "Positioning window: SetWindowPos failed with code 0x%x\n", GetLastError());
+    }
+    return result;
 }
 
 void switch_wnds(WIMAN_WINDOW **wndl, int first, int second) {
@@ -489,8 +497,11 @@ int move_wnd_to_desk(WIMAN_DESKTOP_STATE *desk_from, int wnd, WIMAN_DESKTOP_STAT
 
 int toggle_wnd_freeroam(WIMAN_DESKTOP_STATE *wmds, int idx, WIN_MONITOR *wm) {
     #define wnd wmds->wnd_list[idx]
-    log_to_file(&wms, "Toggled window %d freeroam (currently %s)\n", idx + 1, wnd.is_freeroam ? "ON" : "OFF");
-    if(wnd.is_unresizable) return 2;
+    log_to_file(&wms, "Toggling window %d freeroam (currently %s)\n", idx + 1, wnd.is_freeroam ? "ON" : "OFF");
+    if(wnd.is_unresizable) {
+        log_to_file(&wms, "Toggling freeroam: window is unresizable, returning")
+        return 2;
+    }
     int offset = (wmds->wnd_count - wmds->tiling_count) * 32;
     if(!SetWindowPos(wnd.hwnd, HWND_TOPMOST - wnd.is_freeroam, wm->w / 6 + offset, wm->h / 6 + offset, wm->w / 3 * 2, wm->h / 3 * 2, wnd.is_freeroam * (SWP_NOMOVE | SWP_NOSIZE))) return 1;
     wmds->tiling_count += !wnd.is_freeroam * -2 + 1;
@@ -509,8 +520,7 @@ int tile_windows_vert(WIMAN_DESKTOP_STATE *wmds, WIN_MONITOR *wm) {
     RECT pos = { wm->pos.left, wm->pos.top, wm->pos.left + window_w, wm->pos.bottom };
     for(int i = 0; i < wmds->tiling_count; i++) {
         log_to_file(&wms, "Tiling vertically: Setting window %d position\n", i);
-        HWND hwnd = wmds->wnd_list[i].hwnd;
-        position_window(hwnd, &pos);
+        position_window(wmds->wnd_list[i].hwnd, &pos);
         wmds->wnd_list[i].last_set_pos = pos;
         pos.left += window_w;
         pos.right += window_w;
@@ -524,8 +534,7 @@ int tile_windows_horiz(WIMAN_DESKTOP_STATE *wmds, WIN_MONITOR *wm) {
     RECT pos = { wm->pos.left, wm->pos.top, wm->w, wm->pos.top + window_h };
     for(int i = 0; i < wmds->tiling_count; i++) {
         log_to_file(&wms, "Tiling horizontally: Setting window %d position\n", i);
-        HWND hwnd = wmds->wnd_list[i].hwnd;
-        position_window(hwnd, &pos);
+        position_window(wmds->wnd_list[i].hwnd, &pos);
         wmds->wnd_list[i].last_set_pos = pos;
         // TODO i want the same border that window snapping uses around windows
         // long style = GetWindowLongPtrA(curr_hwnd, GWL_STYLE);
