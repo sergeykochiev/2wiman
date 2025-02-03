@@ -2,12 +2,14 @@
 #include <minwindef.h>
 #include <shellapi.h>
 #include "wingdi.h"
+#include <stdlib.h>
 #include <winnt.h>
 #include <winuser.h>
 #include <windowsx.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
+#include <stddef.h>
 #include <time.h>
 #include <winternl.h>
 #include <winnt.h>
@@ -140,6 +142,67 @@ const char* const WMM_NAMES[WMM_COUNT] = {
     [WMM_STACK] = "stack",
 };
 UINT WM_SHELLHOOKMESSAGE;
+
+struct {
+    size_t offset;
+    const char name[48];
+} config_names_map[] = {
+    {
+        .name = "is_stack_mode_infinite_scroll",
+        .offset = offsetof(WIMAN_CONFIG, is_stack_mode_infinite_scroll)
+    },
+    {
+        .name = "is_scale_with_dpi",
+        .offset = offsetof(WIMAN_CONFIG, is_scale_with_dpi)
+    },
+    {
+        .name = "button_size_x",
+        .offset = offsetof(WIMAN_CONFIG, button_size)
+    },
+    {
+        .name = "button_size_y",
+        .offset = offsetof(WIMAN_CONFIG, button_size) + offsetof(POINT, y)
+    },
+    {
+        .name = "default_mode",
+        .offset = offsetof(WIMAN_CONFIG, default_mode)
+    }
+};
+
+const char CONFIG_BUFFER[] = "is_stack_mode_infinite_scroll=1\ndefault_mode=1\nbutton_size_x=32\nbutton_size_y=32\nis_scale_with_dpi=1\n";
+
+int parse_config_file(WIMAN_CONFIG *wmcfg, const char buffer[], size_t len) {
+    char c;
+    char name_buf[48];
+    long long offset = 1;
+    int cur = 0;
+    for(int i = 0; i < len; i++) {
+        c = buffer[i];
+        if(c == '=') {
+            cur = 0;
+            offset = -1;
+            printf("searhing for %s\n", name_buf);
+            for(int j = 0; j < 5; j++) {
+                if(strncmp(config_names_map[j].name, name_buf, strlen(config_names_map[j].name)) == 0) {
+                    printf("found\n");
+                    offset = config_names_map[j].offset;
+                }
+            }
+            if(offset == -1) {
+                printf("Invalid config entry\n");
+                return 1;
+            }
+        } else if(c == '\n') {
+            name_buf[cur] = '\0';
+            printf("assigning %s\n", name_buf);
+            cur = 0;
+            *(long*)((char*)wmcfg + offset) = atol(name_buf);
+        } else {
+            name_buf[cur] = c;
+            cur++;
+        }
+    }
+}
 
 void get_time(char* output) {
     time_t tt = time(0);
@@ -1080,6 +1143,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     fopen_s(&wms.logfile, "2wiman.log", "w");
     SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     wms.h_instance = &hInstance;
+
+    WIMAN_CONFIG test_cfg = {};
+    printf("asdhuasuhd %d %d %ld %ld %d\n", test_cfg.is_stack_mode_infinite_scroll, test_cfg.default_mode, test_cfg.button_size.x, test_cfg.button_size.y, test_cfg.is_scale_with_dpi);
+    parse_config_file(&test_cfg, CONFIG_BUFFER, strlen(CONFIG_BUFFER));
+    printf("asdhuasuhd %d %d %ld %ld %d\n", test_cfg.is_stack_mode_infinite_scroll, test_cfg.default_mode, test_cfg.button_size.x, test_cfg.button_size.y, test_cfg.is_scale_with_dpi);
 
     log_to_file(&wms, "Registering window classes\n");
     wms.wc.main = (WNDCLASS){ .lpfnWndProc = main_window_proc, .hInstance = hInstance, .lpszClassName = WINDOW_CLASSNAME };
