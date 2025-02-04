@@ -219,7 +219,6 @@ int parse_config_file(WIMAN_CONFIG *wmcfg, FILE *f) {
             name_buf[cur] = '\0';
             cur = 0;
             value = atoi(name_buf);
-            printf("%d\n", value);
             if(value < config_config[entry].minValue || value > config_config[entry].maxValue || value == 0 && name_buf[0] != '0') {
                 log_to_file(&wms, "Parsing: warning at %d:%d: Skipping invalid value \"%s\" for parameter \"%s\",\n", line, i, name_buf, config_config[entry].name);
             } else {
@@ -935,11 +934,10 @@ LRESULT CALLBACK main_window_proc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lP
                     SetForegroundWindow(wms.main_hwnd);
                     switch(TrackPopupMenu(hm, TPM_VERNEGANIMATION | TPM_RETURNCMD | TPM_BOTTOMALIGN | TPM_LEFTBUTTON | TPM_LEFTALIGN, cur.x, cur.y, 0, wms.main_hwnd, NULL)) {
                         PostMessage(wms.main_hwnd, WM_NULL, 0, 0);
-                        case OPTION_EXIT: {
-                            SendMessage(wms.main_hwnd, WM_CLOSE, 0, 0);
-                            return 0;
-                        }
+                        case OPTION_EXIT: SendMessage(wms.main_hwnd, WM_CLOSE, 0, 0);
+                        case OPTION_SETTINGS: ShellExecute(0, 0, ".\\2wiman.conf", 0, 0 , SW_SHOW);
                     }
+                    return 0;
                 }
             }
             return 0;
