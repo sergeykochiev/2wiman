@@ -4,4 +4,4 @@
 It is also messy, features bad design decisions and bad code overall, permanently unfinished and full of bugs, it's development cycle is entirely tied to my will and based on my mood. So, all the good stuff.
 
 And it also has
-## a stupid fucking name
+## a stupid name
